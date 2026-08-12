@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { motion, useScroll, useTransform, AnimatePresence, useMotionValue, useSpring } from "framer-motion";
-import { Code2, Braces, Swords, Trophy, Sparkles, ArrowRight, Terminal, User, Play, Check } from "lucide-react";
+import { Code2, Braces, Swords, Trophy, Sparkles, ArrowRight, Terminal, User, Check } from "lucide-react";
 import confetti from "canvas-confetti";
 import Link from "next/link";
 
@@ -279,32 +279,24 @@ function LeaderboardSnippet() {
 // 3. RPG DIALOGUE TESTIMONIALS
 // ---------------------------------------------------------------------------
 function RPGDialogues() {
+    const emptyText = "No reviews yet. You could be the first — start a track, then tell us how it went.";
     const [currentText, setCurrentText] = useState("");
-    const [dialogueIndex, setDialogueIndex] = useState(0);
-
-    const dialogues = [
-        { name: "Ash", text: "Before Skloop, I was stuck doing infinite LeetCode grinding. Now I actually understand the 'why' behind the algorithms.", avatar: "bg-orange-500" },
-        { name: "Misty", text: "The tactile feedback makes building full-stack apps feel like unlocking a new zone in a video game. Highly recommend.", avatar: "bg-cyan-500" },
-        { name: "Brock", text: "I finally landed a job after completing the The Builder track. The mentor battles... I mean... mock interviews were intense but worth it.", avatar: "bg-amber-700" }
-    ];
-
-    const currentMsg = dialogues[dialogueIndex];
 
     useEffect(() => {
         let i = 0;
         setCurrentText("");
         const typingInterval = setInterval(() => {
-            if (i < currentMsg.text.length) {
+            if (i < emptyText.length) {
                 // Fix for strict mode double-firing interval
                 i++;
-                setCurrentText(currentMsg.text.substring(0, i));
+                setCurrentText(emptyText.substring(0, i));
             } else {
                 clearInterval(typingInterval);
             }
         }, 30); // typing speed
 
         return () => clearInterval(typingInterval);
-    }, [dialogueIndex, currentMsg.text]);
+    }, [emptyText]);
 
     return (
         <section className="relative w-full max-w-4xl mx-auto px-2 md:px-6">
@@ -313,38 +305,28 @@ function RPGDialogues() {
             </div>
 
             {/* Retro Dialogue Box */}
-            <div
-                className="bg-white border-4 md:border-8 border-black rounded-xl p-4 md:p-8 shadow-[8px_8px_0_0_#000] md:shadow-[16px_16px_0_0_#000] cursor-pointer relative"
-                onClick={() => setDialogueIndex((prev) => (prev + 1) % dialogues.length)}
-            >
+            <div className="bg-white border-4 md:border-8 border-black rounded-xl p-4 md:p-8 shadow-[8px_8px_0_0_#000] md:shadow-[16px_16px_0_0_#000] relative">
                 <div className="flex gap-4 md:gap-8">
                     {/* Avatar Portait */}
                     <div className="shrink-0">
-                        <div className={`w-16 h-16 md:w-24 md:h-24 ${currentMsg.avatar} border-4 border-black rounded-lg shadow-[4px_4px_0_0_#000] flex items-center justify-center`}>
-                            <User className="w-8 h-8 md:w-12 md:h-12 text-white" />
+                        <div className="w-16 h-16 md:w-24 md:h-24 bg-zinc-200 border-4 border-black rounded-lg shadow-[4px_4px_0_0_#000] flex items-center justify-center">
+                            <User className="w-8 h-8 md:w-12 md:h-12 text-zinc-500" />
                         </div>
                     </div>
 
                     <div className="flex-1 flex flex-col justify-between min-h-[100px] md:min-h-[120px]">
                         <div>
                             <div className="inline-block px-3 py-1 bg-black text-white font-bold uppercase text-xs md:text-sm tracking-wider mb-2">
-                                {currentMsg.name}
+                                ???
                             </div>
                             <p className="text-lg md:text-2xl font-bold font-mono text-zinc-800 leading-snug">
                                 {currentText}
                             </p>
                         </div>
-
-                        {/* Bouncing Continue Arrow */}
-                        <div className="self-end mt-4">
-                            <motion.div animate={{ y: [0, 5, 0] }} transition={{ repeat: Infinity, duration: 0.8 }}>
-                                <Play className="w-6 h-6 text-lime-500 fill-lime-500 rotate-90" />
-                            </motion.div>
-                        </div>
                     </div>
                 </div>
             </div>
-            <p className="text-center font-bold text-zinc-400 mt-4 text-sm uppercase tracking-widest">Click to continue</p>
+            <p className="text-center font-bold text-zinc-400 mt-4 text-sm uppercase tracking-widest">Awaiting first entry</p>
         </section>
     );
 }

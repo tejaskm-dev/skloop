@@ -10,7 +10,7 @@ export default function LootBoxShowcase() {
             <div className="text-center mb-12 md:mb-20">
                 <h2 className="text-4xl md:text-5xl font-black tracking-tighter text-black uppercase">Earn Epic Loot</h2>
                 <p className="text-zinc-600 font-bold mt-4 text-balance text-lg">
-                    Every line of code you write earns you XP and Skloop Coins. Spend them to unlock exclusive profile cosmetics, mentor sessions, and real-world merch.
+                    Every line of code you write earns you XP and Skloop Coins. Spend them to unlock profile cosmetics, titles, and streak freezes.
                 </p>
             </div>
 
@@ -37,7 +37,7 @@ export default function LootBoxShowcase() {
                     borderColor="border-orange-400"
                     glow="shadow-[0_0_50px_rgba(249,115,22,0.8)]"
                     icon={<Crown className="w-12 h-12 text-white" />}
-                    reward="1-on-1 Session with a FAANG Mentor"
+                    reward="Animated Profile Frame + 'Legendary' Title"
                 />
             </div>
 

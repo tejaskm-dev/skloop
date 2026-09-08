@@ -84,33 +84,20 @@ const CodeBlock = ({ language, code }: { language: string; code: string }) => {
         setTimeout(() => setCopied(false), 2000);
     };
 
-    const handleRun = () => {
-        const lines: string[] = [];
-        let isError = false;
+    const [running, setRunning] = useState(false);
 
-        // Intercept console.log so output shows inline
-        const originalLog = console.log;
-        const originalWarn = console.warn;
-        const originalError = console.error;
-        console.log = (...args: any[]) => lines.push(args.map(String).join(' '));
-        console.warn = (...args: any[]) => lines.push('⚠ ' + args.map(String).join(' '));
-        console.error = (...args: any[]) => { lines.push('✖ ' + args.map(String).join(' ')); isError = true; };
-
+    // Executed in a sandboxed iframe with an opaque origin, not on this page.
+    // The previous new Function(code)() ran in the app's own realm, with access
+    // to the DOM, cookies and the live Supabase session — which is far too much
+    // authority for a snippet, and more so now that Loopy can generate code.
+    const handleRun = async () => {
+        setRunning(true);
         try {
-            // eslint-disable-next-line no-new-func
-            const result = new Function(code)();
-            if (result !== undefined) lines.push('→ ' + String(result));
-            if (lines.length === 0) lines.push('✓ Ran with no output');
-        } catch (e: any) {
-            lines.push('✖ ' + (e?.message || String(e)));
-            isError = true;
+            const { runSandboxed } = await import("@/lib/sandbox-run");
+            setOutput(await runSandboxed(code));
         } finally {
-            console.log = originalLog;
-            console.warn = originalWarn;
-            console.error = originalError;
+            setRunning(false);
         }
-
-        setOutput({ lines, isError });
     };
 
     return (
@@ -124,8 +111,12 @@ const CodeBlock = ({ language, code }: { language: string; code: string }) => {
                 <span className="text-[10px] text-slate-500 font-mono uppercase tracking-widest">{language}</span>
                 <div className="flex items-center gap-2 opacity-0 group-hover/code:opacity-100 transition-opacity">
                     {isRunnable && (
-                        <button onClick={handleRun} className="flex items-center gap-1.5 px-2.5 py-1 bg-[#D4F268] hover:bg-[#bef264] text-black rounded-lg text-xs font-black transition-colors">
-                            <Play size={11} fill="currentColor" /> Run
+                        <button
+                            onClick={handleRun}
+                            disabled={running}
+                            className="flex items-center gap-1.5 px-2.5 py-1 bg-[#D4F268] hover:bg-[#bef264] disabled:opacity-60 text-black rounded-lg text-xs font-black transition-colors"
+                        >
+                            <Play size={11} fill="currentColor" /> {running ? 'Running…' : 'Run'}
                         </button>
                     )}
                     <button onClick={handleCopy} className="flex items-center gap-1.5 px-2.5 py-1 bg-white/10 hover:bg-white/20 text-white rounded-lg text-xs font-bold transition-colors">

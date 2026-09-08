@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useEffect, useState, useCallback, useMemo } from "react";
 import { createClient } from "@/utils/supabase/client";
+import { setChatCacheUser, clearChatCache } from "@/lib/chat-cache";
 import { User } from "@supabase/supabase-js";
 import { processDailyLogin, fetchUserProfile, updateLastSeen } from "@/actions/user-actions";
 import { usePresence } from "@/hooks/usePresence";
@@ -103,6 +104,7 @@ export function UserProvider({
             if (mounted) {
                 if (authUser) {
                     setUser(authUser);
+                    setChatCacheUser(authUser.id);
 
                     // Only fetch if SSR didn't already give us the profile.
                     const fetchedProfile = initialProfile ?? await fetchProfile(authUser.id);
@@ -121,6 +123,8 @@ export function UserProvider({
                     }
                 } else if (!initialUser) {
                     // Only clear if we didn't have an initial SSR user
+                    clearChatCache();
+                    setChatCacheUser(null);
                     setUser(null);
                     setProfile(null);
                 }
@@ -148,6 +152,7 @@ export function UserProvider({
 
                 if (newUser) {
                     setUser(newUser);
+                    setChatCacheUser(newUser.id);
                     const fetchedProfile = await fetchProfile(newUser.id);
                     const todayStr = new Date().toISOString().split("T")[0];
                     const processedKey = `${newUser.id}_${todayStr}`;
@@ -157,6 +162,9 @@ export function UserProvider({
                         await processDailyLogin(newUser.id);
                     }
                 } else {
+                    // Sign-out: drop any cached message history from this device.
+                    clearChatCache();
+                    setChatCacheUser(null);
                     setUser(null);
                     setProfile(null);
                 }

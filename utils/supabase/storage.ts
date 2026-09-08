@@ -1,4 +1,5 @@
 import { createClient } from "./client";
+import { compressImage } from "@/lib/image-compress";
 
 /**
  * Uploads an image to a Supabase bucket and returns the public URL.
@@ -30,6 +31,16 @@ export async function uploadProfileImage(
         }
     } else {
         body = imageSource;
+    }
+
+    // Downscale before upload. Avatars and banners render at at most a few
+    // hundred pixels, but the raw file off a phone camera is routinely several
+    // megabytes — which then costs storage and egress on every cache miss.
+    if (body instanceof File) {
+        body = await compressImage(body, {
+            maxDimension: bucket === "banners" ? 1600 : 512,
+            quality: 0.85,
+        });
     }
 
     // Upload to Supabase Storage

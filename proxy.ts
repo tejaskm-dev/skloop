@@ -94,7 +94,7 @@ export async function proxy(request: NextRequest) {
     const url = request.nextUrl.clone()
     const hasSeenOnboarding = request.cookies.get('has_seen_onboarding')?.value === 'true'
 
-    const isProtectedPath = request.nextUrl.pathname.match(/^\/(dashboard|profile|settings|roadmap|marketplace|mentorship|workspace|messages|notifications|stats|peer|practice|course|lesson|loopy|calendar|contacts|session)/);
+    const isProtectedPath = request.nextUrl.pathname.match(/^\/(dashboard|profile|settings|roadmap|mentorship|workspace|messages|peer|practice|course|lesson|loopy)/);
     const isAuthPath = request.nextUrl.pathname.startsWith('/login') || request.nextUrl.pathname.startsWith('/signup');
     const isRootPath = request.nextUrl.pathname === '/';
 

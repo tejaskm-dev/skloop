@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -79,12 +80,24 @@ export function Avatar({ src, fallback, className, frameId, glowId, onClick }: A
                 )}
             >
                 {showImage ? (
-                    /* eslint-disable-next-line @next/next/no-img-element */
-                    <img
+                    // Optimised through next/image rather than a raw <img>.
+                    //
+                    // Avatars render between 32px and 96px but the raw tag served
+                    // whatever the user originally uploaded — often multiple
+                    // megabytes — once per leaderboard row and once per chat
+                    // message. The optimiser resizes and converts to AVIF/WebP at
+                    // the edge, and `sizes` tells it which variant to pick.
+                    //
+                    // `unoptimized` is a safety valve for data: URLs (crop preview
+                    // before upload), which the optimiser can't process.
+                    <Image
                         src={validSrc}
                         alt={fallback}
+                        fill
+                        sizes="96px"
                         className="h-full w-full object-cover"
                         onError={() => setImgError(true)}
+                        unoptimized={validSrc.startsWith("data:") || validSrc.startsWith("blob:")}
                     />
                 ) : (
                     <div className="flex h-full w-full items-center justify-center bg-primary/10 text-xs font-bold text-primary">

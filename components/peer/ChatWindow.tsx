@@ -19,6 +19,7 @@ import { useUser } from "@/context/UserContext";
 import { LoopyMascot, LoopyMood } from "../loopy/LoopyMascot";
 import data from '@emoji-mart/data';
 import dynamic from 'next/dynamic';
+import { readCachedMessages, writeCachedMessages } from '@/lib/chat-cache';
 import { createClient } from "@/utils/supabase/client";
 import {
     getConversationMessages, sendMessage, MessageRow,
@@ -671,12 +672,25 @@ export function ChatWindow({ peer, currentUserId, currentUserName, onBack, onPee
 
     useEffect(() => {
         if (!peer || !currentUserId) return;
+
+        // Render cached history immediately, then refresh.
+        //
+        // Every other surface in this app reads through SWR's persisted cache;
+        // chat did not, so opening a conversation was always a cold round-trip
+        // before a single message appeared. Seeding from the cache lets a
+        // previously-opened conversation paint instantly while the fetch runs.
+        const cached = readCachedMessages(peer.id);
+        if (cached && cached.length > 0) {
+            setMessages(cached);
+        }
+
         const loadMessages = async () => {
             const [history, pinned] = await Promise.all([
                 getConversationMessages(peer.id),
                 getPinnedMessage(peer.id)
             ]);
             setMessages(history);
+            writeCachedMessages(peer.id, history);
             setPinnedMsg(pinned);
             if (history.length > 0) {
                 oldestTimestampRef.current = history[0].timestamp.toISOString();
@@ -692,17 +706,24 @@ export function ChatWindow({ peer, currentUserId, currentUserName, onBack, onPee
             }
             setHasMore(history.length >= 50);
 
-            // Mark as read and delivered when loading history
-            await markMessagesAsRead(peer.id);
-            await markMessagesAsDelivered(peer.id);
-            await markNotificationsAsRead({ conversationId: peer.id });
+            // Receipt bookkeeping — fired in parallel and deliberately not
+            // awaited. These were three sequential server-action round-trips
+            // (each with its own auth and membership check) blocking the rest of
+            // the load, despite nothing on screen depending on their result.
+            void Promise.allSettled([
+                markMessagesAsRead(peer.id),
+                markMessagesAsDelivered(peer.id),
+                markNotificationsAsRead({ conversationId: peer.id }),
+            ]);
 
-            // Check for overdue scheduled messages
-            const overdue = await getOverdueScheduledMessages(peer.id);
-            for (const msg of overdue) {
-                await sendMessage(peer.id, msg.content, msg.type);
-                await markScheduledMessageSent(msg.id);
-            }
+            // Overdue scheduled messages: also off the critical path.
+            void (async () => {
+                const overdue = await getOverdueScheduledMessages(peer.id);
+                for (const msg of overdue) {
+                    await sendMessage(peer.id, msg.content, msg.type);
+                    await markScheduledMessageSent(msg.id);
+                }
+            })();
         };
         loadMessages();
 

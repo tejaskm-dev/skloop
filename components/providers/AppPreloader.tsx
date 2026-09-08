@@ -3,32 +3,55 @@
 import { useEffect } from "react";
 import { useLoading } from "@/components/LoadingProvider";
 
+/**
+ * Warms caches for things the user is *likely* to need next.
+ *
+ * What this used to do, and why it was removed:
+ *   - `fetch('/api/user/stats')` — that route does not exist, so every boot
+ *     fired a 404.
+ *   - `import('gsap')` and `import('framer-motion')` — eagerly downloading two
+ *     animation engines on startup defeats the route-level code splitting that
+ *     would otherwise fetch them only where they're used. On a mid-tier phone
+ *     this competed with the JS actually needed for first paint.
+ *
+ * What remains is deferred to idle time so it can never contend with initial
+ * render, and is strictly best-effort.
+ */
 export function AppPreloader() {
     const { registerPreloadTasks } = useLoading();
 
     useEffect(() => {
-        // Fire essential imports in the background.
-        // Heavy assets (Monaco, React Flow) are preloaded in their specific pages, not here.
-        const preloadTasks: Promise<any>[] = [
-            // 1. Preload GSAP & Motion (Animation Engines) — used on dashboard immediately
-            import('gsap').catch(e => console.warn("GSAP preload failed", e)),
-            import('framer-motion').catch(e => console.warn("Framer Motion preload failed", e)),
+        // requestIdleCallback isn't available in Safari; fall back to a timeout.
+        type IdleWindow = Window & {
+            requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+            cancelIdleCallback?: (handle: number) => void;
+        };
+        const w = window as IdleWindow;
 
-            // 2. Serverless Cold Start Wakes & Data Warmup
-            fetch('/api/user/stats').catch(() => {}),
-            
-            // 3. Pre-import components used on key pages
-            import('@/lib/swr-fetchers').then(mod => mod),
-            import('@/components/mentorship/SessionVideoCard').catch(() => {}),
-            import('@/components/profile/UserProfileModal').catch(() => {}),
-        ];
+        const schedule = w.requestIdleCallback
+            ? (cb: () => void) => w.requestIdleCallback!(cb, { timeout: 3000 })
+            : (cb: () => void) => window.setTimeout(cb, 1500);
 
-        // Register tasks with the global loader
-        if (registerPreloadTasks) {
-            registerPreloadTasks(preloadTasks);
-        }
+        const handle = schedule(() => {
+            const preloadTasks: Promise<unknown>[] = [
+                // Small, genuinely-likely-next modules only.
+                import("@/lib/swr-fetchers").catch(() => {}),
+                import("@/components/profile/UserProfileModal").catch(() => {}),
+            ];
 
+            if (registerPreloadTasks) {
+                registerPreloadTasks(preloadTasks);
+            }
+        });
+
+        return () => {
+            if (w.cancelIdleCallback) {
+                w.cancelIdleCallback(handle);
+            } else {
+                clearTimeout(handle);
+            }
+        };
     }, [registerPreloadTasks]);
 
-    return null; // This is a logic-only component
+    return null; // logic-only component
 }

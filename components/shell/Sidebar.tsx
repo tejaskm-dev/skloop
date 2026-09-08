@@ -15,7 +15,7 @@ import {
 import { useState, useRef, memo, useMemo } from "react";
 import Link from "next/link";
 import useSWR from "swr";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Button } from "../ui/Button";
 import { cn } from "@/lib/utils";
 import Logo from "@/components/Logo";
@@ -62,6 +62,7 @@ interface NavItemProps {
 
 // Wrapped in memo to prevent unnecessary re-renders when parent Sidebar state changes 
 const NavItem = memo(({ item, isCollapsed, isDesktop, pathname, setMobileOpen, setIsCollapsed, user }: NavItemProps) => {
+    const router = useRouter();
     const [isOpen, setIsOpen] = useState(false);
     const isActive = pathname === item.href || (item.subItems && item.subItems.some((sub) => pathname === sub.href));
     const showLabel = !isCollapsed || !isDesktop;
@@ -75,9 +76,35 @@ const NavItem = memo(({ item, isCollapsed, isDesktop, pathname, setMobileOpen, s
     }
 
     const prefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const prefetchedRoutes = useRef<Set<string>>(new Set());
 
     const handlePrefetch = (href: string) => {
         if (!user) return;
+
+        // Prefetch the ROUTE, not just its data.
+        //
+        // This function previously only warmed the SWR cache, so a click still
+        // had to wait on the RSC payload. And because every route here is
+        // dynamic, Next's default <Link> prefetch fetches nothing beyond the
+        // loading boundary — so the payload was always fetched on click.
+        //
+        // router.prefetch() pulls the full payload; with
+        // experimental.staleTimes.dynamic set in next.config.ts it then stays in
+        // the client router cache, making the click itself instant.
+        //
+        // Done on hover rather than via prefetch={true} deliberately: the latter
+        // prefetches on viewport entry, which would fire a burst of RSC requests
+        // for every sidebar item on each page load — expensive on a free-tier
+        // database. Fired once per route per mount.
+        if (!prefetchedRoutes.current.has(href)) {
+            prefetchedRoutes.current.add(href);
+            try {
+                router.prefetch(href);
+            } catch {
+                // Prefetch is an optimisation; never let it break navigation.
+            }
+        }
+
         if (prefetchTimerRef.current) clearTimeout(prefetchTimerRef.current);
         prefetchTimerRef.current = setTimeout(() => {
         if (href === '/dashboard') {
@@ -193,6 +220,7 @@ const NavItem = memo(({ item, isCollapsed, isDesktop, pathname, setMobileOpen, s
                                         key={idx}
                                         href={sub.href}
                                         onMouseEnter={() => handlePrefetch(sub.href)}
+                                        onTouchStart={() => handlePrefetch(sub.href)}
                                         onClick={() => setMobileOpen?.(false)}
                                         className={cn(
                                             "flex items-center justify-between py-2 px-4 rounded-xl text-xs xl:text-sm transition-colors !no-underline",

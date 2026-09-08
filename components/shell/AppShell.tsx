@@ -22,6 +22,46 @@ const FULL_HEIGHT_ROUTES = ["/peer/chat", "/messages", "/loopy/chat"];
 // Settings routes — skip the main sidebar entirely; settings has its own layout
 const SETTINGS_ROUTES = ["/settings"];
 
+
+/**
+ * Smooth scrolling is an enhancement, not a requirement.
+ *
+ * Lenis runs a permanent requestAnimationFrame loop and re-drives scroll on the
+ * main thread. On a fast desktop that reads as polish; on a mid-tier phone or an
+ * older laptop it reads as lag — and `syncTouch` in particular fights the
+ * browser's native touch scrolling, which is GPU-accelerated and already smooth.
+ *
+ * So: off entirely for anyone who asked for reduced motion, off for coarse
+ * (touch) pointers, and off on low-core devices. Everyone else keeps the effect.
+ */
+function useSmoothScrollEnabled() {
+    const [enabled, setEnabled] = useState(false);
+
+    useEffect(() => {
+        if (typeof window === "undefined" || !window.matchMedia) return;
+
+        const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+        const coarsePointer = window.matchMedia("(pointer: coarse)");
+        // navigator.hardwareConcurrency is absent on some browsers; assume capable.
+        const lowPower = (navigator.hardwareConcurrency ?? 8) <= 4;
+
+        const evaluate = () => {
+            setEnabled(!reducedMotion.matches && !coarsePointer.matches && !lowPower);
+        };
+
+        evaluate();
+        reducedMotion.addEventListener("change", evaluate);
+        coarsePointer.addEventListener("change", evaluate);
+
+        return () => {
+            reducedMotion.removeEventListener("change", evaluate);
+            coarsePointer.removeEventListener("change", evaluate);
+        };
+    }, []);
+
+    return enabled;
+}
+
 // PERF 6: Inner component that pauses/resumes Lenis for full-height routes
 // instead of unmounting/remounting the Lenis instance on every navigation.
 function LenisController({ isFullHeight }: { isFullHeight: boolean }) {
@@ -39,6 +79,7 @@ function LenisController({ isFullHeight }: { isFullHeight: boolean }) {
 
 export function AppShell({ children }: { children: React.ReactNode }) {
     const [mobileOpen, setMobileOpen] = useState(false);
+    const smoothScroll = useSmoothScrollEnabled();
     const pathname = usePathname();
     const { isLoading } = useLoading();
     // PERF 5: Skip the enter animation after the initial load to prevent nav flash
@@ -101,8 +142,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                             <div className="flex flex-col flex-1 h-full overflow-hidden">
                                 {children}
                             </div>
-                        ) : (
-                            // All other pages use Lenis smooth scroll.
+                        ) : smoothScroll ? (
+                            // Capable, motion-tolerant devices get Lenis smooth scroll.
                             <ReactLenis
                                 root={false}
                                 autoRaf={true}
@@ -111,13 +152,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                                     lerp: 0.08,
                                     duration: 1.5,
                                     smoothWheel: true,
-                                    syncTouch: true,
+                                    // syncTouch is deliberately off: it hijacks native
+                                    // touch scrolling, which is the main source of
+                                    // scroll jank on phones.
+                                    syncTouch: false,
                                     touchMultiplier: 2
                                 }}
                                 className="flex-1 overflow-y-auto no-scrollbar h-full"
                             >
                                 {children}
                             </ReactLenis>
+                        ) : (
+                            // Touch, low-core, or reduced-motion: native scrolling,
+                            // which is GPU-accelerated and costs no main-thread work.
+                            <div className="flex-1 overflow-y-auto no-scrollbar h-full">
+                                {children}
+                            </div>
                         )}
                     </AppScrollProvider>
                 </motion.div>

@@ -72,18 +72,33 @@ async function withTimeout<T>(fn: (signal: AbortSignal) => Promise<T>): Promise<
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function searchTavily(query: string, signal: AbortSignal): Promise<SearchResult[]> {
+    const key = process.env.TAVILY_API_KEY!;
+
     const res = await fetch("https://api.tavily.com/search", {
         method: "POST",
         signal,
-        headers: { "Content-Type": "application/json" },
+        headers: {
+            "Content-Type": "application/json",
+            // Tavily moved to Bearer auth but still accepts api_key in the body.
+            // Sending both means this works on either, at no cost.
+            Authorization: `Bearer ${key}`,
+        },
         body: JSON.stringify({
-            api_key: process.env.TAVILY_API_KEY,
+            api_key: key,
             query,
             max_results: MAX_RESULTS,
+            // "basic" is 1 credit; "advanced" is 2. Not worth double the spend
+            // against a 1,000/month free tier.
             search_depth: "basic",
+            include_answer: false,
+            include_raw_content: false,
         }),
     });
-    if (!res.ok) throw new Error(`Tavily ${res.status}`);
+
+    if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        throw new Error(`Tavily ${res.status}${body ? `: ${body.slice(0, 200)}` : ""}`);
+    }
 
     const json = (await res.json()) as { results?: Array<{ title?: string; url?: string; content?: string }> };
     return (json.results ?? [])

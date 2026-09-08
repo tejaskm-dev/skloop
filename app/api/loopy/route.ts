@@ -188,6 +188,7 @@ export async function POST(req: Request) {
                 conversationId,
                 artifacts: [],
                 sources: [],
+                searchCount: 0,
             };
 
             let fullText = "";

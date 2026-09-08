@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Terminal, Sparkles } from "lucide-react";
+import { Sparkles, Zap, Plus, Code2, Globe, ArrowUp } from "lucide-react";
 import { LoopyMascot } from "@/components/loopy/LoopyMascot";
 import { LoopyResponseRenderer } from "@/components/loopy/LoopyResponseRenderer";
 import { ArtifactPanel, ArtifactChip, type LoopyArtifact } from "@/components/loopy/ArtifactPanel";
@@ -293,20 +293,32 @@ export default function LoopyChatPage({ params }: { params: Promise<{ id: string
                 opens, so the transcript keeps its position. */}
             <div className={`flex flex-col h-full min-h-0 min-w-0 transition-[width] duration-300 ${showPanel ? "w-full lg:w-1/2" : "w-full"}`}>
             
-            {/* Header: Skloop Theme (Creamy White & Lime) */}
-            <header className="h-16 shrink-0 flex items-center px-8 border-b-2 border-slate-200 bg-[#FAFAF8]/80 backdrop-blur-2xl sticky top-0 z-20 transition-all shadow-sm">
-                <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-xl bg-[#D4F268] flex items-center justify-center text-[#050505] shadow-[0_4px_10px_rgba(212,242,104,0.4)] border-2 border-[#b5db3b]">
-                        <Terminal size={18} strokeWidth={3} />
+            {/* Header */}
+            <header className="sticky top-0 z-20 flex h-20 shrink-0 items-center gap-4 border-b border-zinc-200 bg-[#FAFAF8]/90 px-6 backdrop-blur-xl">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full ring-2 ring-[#D4F268]">
+                    <div className="scale-[1.6] translate-y-[3px]">
+                        <LoopyMascot size={44} mood="happy" />
                     </div>
-                    <h1 className="text-[#050505] font-black tracking-wide text-md">
-                        {isNew ? 'New Session' : 'Active Conversation'}
-                    </h1>
+                </div>
+                <div className="min-w-0">
+                    <h1 className="text-lg font-black leading-tight tracking-tight text-[#050505]">Loopy</h1>
+                    <p className="text-xs font-bold text-zinc-400">Your learning buddy</p>
+                </div>
+
+                {/* Encouragement, hidden where it would crowd the panel */}
+                <div className="ml-auto hidden items-center gap-2.5 rounded-2xl bg-[#F4FBE4] px-4 py-2.5 xl:flex">
+                    <Zap size={15} className="shrink-0 text-[#7ca80f]" strokeWidth={2.5} />
+                    <div>
+                        <p className="text-xs font-black leading-tight text-zinc-900">
+                            Curious minds build amazing things.
+                        </p>
+                        <p className="text-[11px] font-medium text-zinc-500">Keep exploring!</p>
+                    </div>
                 </div>
             </header>
 
             {/* Messages Area */}
-            <div ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-8 md:py-12 space-y-12 no-scrollbar bg-[#FAFAF8]">
+            <div ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-hidden bg-[#FAFAF8] px-4 py-8 no-scrollbar md:px-6">
                 
                 {isNew && !isLoading && (
                     <div className="h-full flex flex-col items-center justify-center text-center">
@@ -322,7 +334,7 @@ export default function LoopyChatPage({ params }: { params: Promise<{ id: string
                     </div>
                 )}
 
-                <div className="max-w-3xl mx-auto space-y-10">
+                <div className="mx-auto max-w-3xl space-y-7">
                     <AnimatePresence initial={false}>
                         {messages.map((msg) => (
                             <motion.div
@@ -330,18 +342,18 @@ export default function LoopyChatPage({ params }: { params: Promise<{ id: string
                                 initial={{ opacity: 0, y: 15 }}
                                 animate={{ opacity: 1, y: 0 }}
                                 transition={{ type: "spring", stiffness: 450, damping: 30 }}
-                                className={`flex gap-4 md:gap-6 font-sans ${msg.role === "user" ? "flex-row-reverse" : "flex-row"}`}
+                                className={`flex gap-3 font-sans ${msg.role === "user" ? "flex-row-reverse" : "flex-row"}`}
                             >
-                                {/* Chunky Avatar */}
-                                <div className="shrink-0 mt-1">
+                                {/* Avatar */}
+                                <div className="mt-0.5 shrink-0">
                                     {msg.role === "assistant" ? (
-                                        <div className="w-12 h-12 rounded-2xl bg-[#050505] flex items-center justify-center shadow-[0_8px_0_rgba(0,0,0,0.2)] border-2 border-slate-800 relative overflow-hidden">
-                                            <div className="scale-75 origin-center transform translate-y-3">
-                                                <LoopyMascot size={55} mood={(msg.mood as any) || "happy"} />
+                                        <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-white ring-2 ring-zinc-200">
+                                            <div className="scale-[1.5] translate-y-[3px]">
+                                                <LoopyMascot size={40} mood={(msg.mood as any) || "happy"} />
                                             </div>
                                         </div>
                                     ) : (
-                                        <div className="w-12 h-12 rounded-2xl bg-[#D4F268] text-black flex items-center justify-center font-black tracking-tighter shadow-[0_4px_0_#b5db3b] border-2 border-[#b5db3b]">
+                                        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#D4F268] text-[10px] font-black tracking-tight text-[#050505]">
                                             YOU
                                         </div>
                                     )}
@@ -349,13 +361,13 @@ export default function LoopyChatPage({ params }: { params: Promise<{ id: string
 
                                 {/* Content Bubble */}
                                 <div className={`flex flex-col min-w-0 max-w-[85%] ${msg.role === "user" ? "items-end" : "items-start w-full"}`}>
-                                    <div className={`
-                                        text-[16px] py-4 px-6 rounded-3xl border-2
-                                        ${msg.role === "user" 
-                                            ? "bg-white text-[#050505] rounded-tr-sm border-slate-200 shadow-[0_4px_0_rgba(226,232,240,1)] font-bold leading-relaxed" 
-                                            : "bg-[#050505] text-[#FAFAF8] rounded-tl-sm border-[#050505] w-full shadow-[0_6px_20px_rgba(0,0,0,0.15)]"
+                                    <div
+                                        className={
+                                            msg.role === "user"
+                                                ? "rounded-3xl rounded-tr-md bg-[#EAF7C9] px-5 py-3.5 text-[15px] font-semibold leading-relaxed text-[#050505]"
+                                                : "w-full rounded-3xl rounded-tl-md border border-zinc-200 bg-white px-5 py-4 text-[15px] leading-relaxed text-zinc-800"
                                         }
-                                    `}>
+                                    >
                                         {msg.role === "assistant" ? (
                                             <>
                                                 <ThinkingPanel steps={msg.toolSteps ?? []} />
@@ -390,63 +402,92 @@ export default function LoopyChatPage({ params }: { params: Promise<{ id: string
 
                     {isLoading && messages[messages.length - 1]?.content === "" && (messages[messages.length - 1]?.toolSteps ?? []).length === 0 && (
                         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex gap-4 md:gap-6">
-                            <div className="shrink-0 mt-1">
-                                <div className="w-12 h-12 rounded-2xl bg-[#050505] flex items-center justify-center shadow-[0_8px_0_rgba(0,0,0,0.2)] border-2 border-slate-800 relative overflow-hidden">
-                                     <div className="scale-75 origin-center transform translate-y-3 text-white opacity-50">
-                                         <LoopyMascot size={55} mood="thinking" />
-                                     </div>
+                            <div className="mt-0.5 shrink-0">
+                                <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-white ring-2 ring-zinc-200">
+                                    <div className="scale-[1.5] translate-y-[3px] opacity-60">
+                                        <LoopyMascot size={40} mood="thinking" />
+                                    </div>
                                 </div>
                             </div>
-                            <div className="flex items-center gap-3 px-4 py-5 bg-[#050505] rounded-3xl rounded-tl-sm border-2 border-[#050505]">
-                                <span className="w-2.5 h-2.5 rounded-full bg-[#D4F268] animate-bounce shadow-[0_0_10px_#D4F268]" style={{ animationDelay: "0ms" }} />
-                                <span className="w-2.5 h-2.5 rounded-full bg-[#D4F268] animate-bounce shadow-[0_0_10px_#D4F268]" style={{ animationDelay: "150ms" }} />
-                                <span className="w-2.5 h-2.5 rounded-full bg-[#D4F268]/50 animate-bounce" style={{ animationDelay: "300ms" }} />
+                            <div className="flex items-center gap-1.5 rounded-3xl rounded-tl-md border border-zinc-200 bg-white px-4 py-4">
+                                <span className="h-2 w-2 animate-bounce rounded-full bg-[#a3d417]" style={{ animationDelay: "0ms" }} />
+                                <span className="h-2 w-2 animate-bounce rounded-full bg-[#a3d417]" style={{ animationDelay: "150ms" }} />
+                                <span className="h-2 w-2 animate-bounce rounded-full bg-[#a3d417]/50" style={{ animationDelay: "300ms" }} />
                             </div>
                         </motion.div>
                     )}
                 </div>
             </div>
 
-            {/* Input Area */}
-            <div className="px-4 pb-8 pt-4 md:px-8 bg-gradient-to-t from-[#FAFAF8] via-[#FAFAF8] to-transparent shrink-0">
-                <div className="max-w-3xl mx-auto relative group">
-                    <form 
+            {/* Input */}
+            <div className="shrink-0 bg-gradient-to-t from-[#FAFAF8] via-[#FAFAF8] to-transparent px-4 pb-5 pt-4 md:px-8">
+                <div className="relative mx-auto max-w-3xl">
+                    <form
                         onSubmit={(e) => { e.preventDefault(); handleSend(); }}
-                        className="relative flex flex-col bg-white border-4 border-slate-200 rounded-[2.2rem] shadow-[0_8px_0_rgba(226,232,240,1)] focus-within:border-[#D4F268] focus-within:shadow-[0_8px_0_#b5db3b] transition-all"
+                        className="rounded-[1.75rem] border-2 border-zinc-200 bg-white transition-colors focus-within:border-[#D4F268]"
                     >
                         <textarea
                             ref={textareaRef}
                             value={input}
                             onChange={(e) => setInput(e.target.value)}
                             onKeyDown={(e) => {
-                                if (e.key === 'Enter' && !e.shiftKey) {
+                                // Enter sends; Shift+Enter and Cmd+Enter both newline-or-send
+                                // consistently with the hint shown below.
+                                if (e.key === "Enter" && !e.shiftKey) {
                                     e.preventDefault();
                                     handleSend();
                                 }
                             }}
-                            placeholder="Ask Loopy to debug a component or explain a concept..."
-                            className="w-full bg-transparent text-[#050505] placeholder:text-slate-400 font-bold px-6 py-5 outline-none resize-none min-h-[64px] max-h-[250px] text-[16px] leading-relaxed no-scrollbar rounded-[2.2rem]"
+                            placeholder="Ask Loopy anything..."
+                            aria-label="Message Loopy"
+                            className="max-h-[220px] min-h-[56px] w-full resize-none rounded-t-[1.75rem] bg-transparent px-5 pt-4 text-[15px] font-medium leading-relaxed text-[#050505] outline-none placeholder:text-zinc-400 no-scrollbar"
                             rows={1}
                         />
-                        
-                        <div className="flex justify-between items-center px-4 pb-3">
-                            <div className="flex gap-2 text-slate-400 font-bold text-xs px-2 mt-2 uppercase tracking-wide">
-                                Shift + Enter for new line
-                            </div>
+
+                        <div className="flex items-center gap-2 px-3 pb-3">
+                            {/* Quick prompts. These only shape the message — the
+                                agent decides which tools to actually use. */}
+                            <button
+                                type="button"
+                                onClick={() => setInput((v) => v || "Review this code:\n\n")}
+                                aria-label="Insert a code prompt"
+                                className="flex h-9 w-9 items-center justify-center rounded-full border border-zinc-200 text-zinc-500 transition-colors hover:bg-zinc-50 hover:text-zinc-900"
+                            >
+                                <Plus size={16} strokeWidth={2.5} />
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setInput((v) => v || "Explain this code:\n\n```\n\n```")}
+                                className="flex h-9 items-center gap-1.5 rounded-full border border-zinc-200 px-3 text-xs font-bold text-zinc-600 transition-colors hover:bg-zinc-50 hover:text-zinc-900"
+                            >
+                                <Code2 size={14} strokeWidth={2.5} /> Code
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setInput((v) => v || "Search the web for ")}
+                                className="flex h-9 items-center gap-1.5 rounded-full border border-zinc-200 px-3 text-xs font-bold text-zinc-600 transition-colors hover:bg-zinc-50 hover:text-zinc-900"
+                            >
+                                <Globe size={14} strokeWidth={2.5} /> Web
+                            </button>
+
                             <button
                                 type="submit"
                                 disabled={!input.trim() || isLoading}
-                                className={`
-                                    w-12 h-12 flex items-center justify-center rounded-2xl transition-all active:translate-y-1 shadow-sm
-                                    ${input.trim() && !isLoading 
-                                        ? "bg-[#D4F268] text-[#050505] border-b-4 border-r-2 border-t-2 border-l-2 border-[#b5db3b] hover:bg-[#bef264]" 
-                                        : "bg-slate-100 text-slate-300 border-2 border-slate-200 cursor-not-allowed"}
-                                `}
+                                aria-label="Send message"
+                                className={`ml-auto flex h-10 w-10 items-center justify-center rounded-full transition-all active:scale-95 ${
+                                    input.trim() && !isLoading
+                                        ? "bg-[#050505] text-white"
+                                        : "cursor-not-allowed bg-zinc-100 text-zinc-300"
+                                }`}
                             >
-                                <Send size={20} strokeWidth={3} className={input.trim() && !isLoading ? "-translate-y-[1px] translate-x-[1px]" : ""} />
+                                <ArrowUp size={18} strokeWidth={3} />
                             </button>
                         </div>
                     </form>
+
+                    <p className="mt-2 text-right text-[11px] font-bold text-zinc-400">
+                        Shift + Enter for a new line
+                    </p>
                 </div>
             </div>
             </div>

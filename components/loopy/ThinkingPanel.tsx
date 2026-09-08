@@ -1,7 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Check, Loader2, Globe, BookOpen, User, Calculator, FolderOpen, FileCode, Sparkles } from "lucide-react";
+import { Check, Loader2, ChevronDown, Globe, BookOpen, User, Calculator, FolderOpen, FileCode, Sparkles } from "lucide-react";
 
 /**
  * The "thinking" panel.
@@ -42,67 +43,87 @@ function fmtDuration(ms?: number): string {
 }
 
 export function ThinkingPanel({ steps }: { steps: ToolStep[] }) {
+    const [open, setOpen] = useState(true);
     if (steps.length === 0) return null;
 
     const running = steps.some((s) => s.status === "running");
+    const totalMs = steps.reduce((sum, s) => sum + (s.ms ?? 0), 0);
 
     return (
         <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: "auto" }}
             exit={{ opacity: 0, height: 0 }}
-            className="mb-3 overflow-hidden rounded-2xl border border-white/10 bg-white/5"
+            className="mb-4 overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-50/80"
         >
-            <div className="flex items-center gap-2 border-b border-white/10 px-3 py-2">
-                {running ? (
-                    <Loader2 size={13} className="animate-spin text-[#D4F268]" />
-                ) : (
-                    <Check size={13} className="text-[#D4F268]" strokeWidth={3} />
-                )}
-                <span className="text-[11px] font-black uppercase tracking-widest text-zinc-400">
-                    {running ? "Working" : "Steps taken"}
+            <button
+                onClick={() => setOpen((v) => !v)}
+                aria-expanded={open}
+                className="flex w-full items-center gap-2 px-4 py-2.5 text-left transition-colors hover:bg-zinc-100/60"
+            >
+                <ChevronDown
+                    size={14}
+                    className={`shrink-0 text-zinc-400 transition-transform ${open ? "" : "-rotate-90"}`}
+                    strokeWidth={2.5}
+                />
+                <span className="text-sm font-bold text-zinc-700">
+                    {running ? "Thinking…" : "Steps taken"}
                 </span>
-            </div>
+                {!running && totalMs > 0 && (
+                    <span className="ml-auto font-mono text-[11px] text-zinc-400">
+                        {fmtDuration(totalMs)}
+                    </span>
+                )}
+                {running && <Loader2 size={13} className="ml-auto animate-spin text-[#a3d417]" />}
+            </button>
 
-            <ul className="divide-y divide-white/5">
-                <AnimatePresence initial={false}>
-                    {steps.map((step, i) => {
-                        const meta = TOOL_META[step.name] ?? {
-                            label: step.name,
-                            verb: step.name,
-                            Icon: Sparkles,
-                            tint: "text-zinc-400",
-                        };
-                        const Icon = meta.Icon;
+            <AnimatePresence initial={false}>
+                {open && (
+                    <motion.ul
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: "auto", opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        className="overflow-hidden px-4 pb-3"
+                    >
+                        {steps.map((step, i) => {
+                            const meta = TOOL_META[step.name] ?? {
+                                label: step.name, verb: step.name, Icon: Sparkles, tint: "text-zinc-400",
+                            };
+                            const done = step.status === "done";
 
-                        return (
-                            <motion.li
-                                key={`${step.name}-${i}`}
-                                initial={{ opacity: 0, x: -6 }}
-                                animate={{ opacity: 1, x: 0 }}
-                                className="flex items-center gap-2.5 px-3 py-2"
-                            >
-                                <Icon size={13} className={meta.tint} strokeWidth={2.5} />
-
-                                <span className="min-w-0 flex-1 truncate text-[13px] font-bold text-zinc-300">
-                                    {meta.verb}
-                                    {step.args && (
-                                        <span className="ml-1.5 font-medium text-zinc-500">— {step.args}</span>
+                            return (
+                                <motion.li
+                                    key={`${step.name}-${i}`}
+                                    initial={{ opacity: 0, x: -6 }}
+                                    animate={{ opacity: 1, x: 0 }}
+                                    className="flex items-center gap-2.5 py-1.5"
+                                >
+                                    {done ? (
+                                        <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[#a3d417]">
+                                            <Check size={10} className="text-white" strokeWidth={4} />
+                                        </span>
+                                    ) : (
+                                        <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 border-zinc-300">
+                                            <Loader2 size={9} className="animate-spin text-zinc-400" />
+                                        </span>
                                     )}
-                                </span>
 
-                                {step.status === "running" ? (
-                                    <Loader2 size={12} className="shrink-0 animate-spin text-zinc-500" />
-                                ) : (
-                                    <span className="shrink-0 font-mono text-[10px] text-zinc-500">
-                                        {fmtDuration(step.ms)}
+                                    <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-zinc-600">
+                                        {meta.verb}
+                                        {step.args && <span className="text-zinc-400"> — {step.args}</span>}
                                     </span>
-                                )}
-                            </motion.li>
-                        );
-                    })}
-                </AnimatePresence>
-            </ul>
+
+                                    {done && step.ms !== undefined && (
+                                        <span className="shrink-0 font-mono text-[10px] text-zinc-400">
+                                            {fmtDuration(step.ms)}
+                                        </span>
+                                    )}
+                                </motion.li>
+                            );
+                        })}
+                    </motion.ul>
+                )}
+            </AnimatePresence>
         </motion.div>
     );
 }
@@ -152,7 +173,7 @@ export function SourceList({ sources, compact = false }: { sources: Source[]; co
                                 width={16}
                                 height={16}
                                 loading="lazy"
-                                className="h-4 w-4 rounded-sm bg-white ring-2 ring-[#050505]"
+                                className="h-4 w-4 rounded-sm bg-white ring-2 ring-white"
                             />
                         </a>
                     ))}

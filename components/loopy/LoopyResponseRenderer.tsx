@@ -12,7 +12,7 @@ const ExpandableList = ({ items }: { items: React.ReactNode[] }) => {
     const hiddenCount = items.length - 4;
 
     return (
-        <div className="mb-4 rounded-xl border border-white/10 overflow-hidden divide-y divide-white/5">
+        <div className="mb-4 rounded-xl border border-zinc-200 overflow-hidden divide-y divide-white/5">
             <AnimatePresence initial={false}>
                 {visible.map((item, i) => (
                     <motion.div
@@ -25,7 +25,7 @@ const ExpandableList = ({ items }: { items: React.ReactNode[] }) => {
                             delay: expanded && i >= 4 ? (i - 4) * 0.055 : 0,
                             ease: [0.34, 1.2, 0.64, 1],
                         }}
-                        className="px-4 py-3 text-white/90 font-medium text-sm leading-relaxed flex items-start gap-3 hover:bg-white/5 transition-colors"
+                        className="px-4 py-3 text-zinc-700 font-medium text-sm leading-relaxed flex items-start gap-3 hover:bg-zinc-50 transition-colors"
                     >
                         <motion.span
                             initial={{ scale: 0, opacity: 0 }}
@@ -35,7 +35,7 @@ const ExpandableList = ({ items }: { items: React.ReactNode[] }) => {
                         >
                             ▸
                         </motion.span>
-                        <span className="flex-1 [&_ul]:mt-1 [&_ul]:space-y-1 [&_li]:text-white/70 [&_li]:text-xs [&_strong]:text-white [&_strong]:font-black">
+                        <span className="flex-1 [&_ul]:mt-1 [&_ul]:space-y-1 [&_li]:text-zinc-500 [&_li]:text-xs [&_strong]:text-zinc-900 [&_strong]:font-black">
                             {item}
                         </span>
                     </motion.div>
@@ -203,7 +203,7 @@ export function LoopyResponseRenderer({ content }: { content: string }) {
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.28, ease: [0.34, 1.1, 0.64, 1] }}
-            className="text-white/95 text-[15px] leading-relaxed break-words overflow-hidden"
+            className="text-zinc-800 text-[15px] leading-relaxed break-words overflow-hidden"
         >
             <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
@@ -215,7 +215,7 @@ export function LoopyResponseRenderer({ content }: { content: string }) {
                             initial={{ opacity: 0, x: -10 }}
                             animate={{ opacity: 1, x: 0 }}
                             transition={{ duration: 0.22, ease: 'easeOut' }}
-                            className="text-xl font-black text-white mb-3 mt-6 pb-2 border-b border-white/10"
+                            className="text-xl font-black text-zinc-900 mb-3 mt-6 pb-2 border-b border-zinc-200"
                         >
                             {children}
                         </motion.h1>
@@ -225,7 +225,7 @@ export function LoopyResponseRenderer({ content }: { content: string }) {
                             initial={{ opacity: 0, x: -8 }}
                             animate={{ opacity: 1, x: 0 }}
                             transition={{ duration: 0.2, ease: 'easeOut' }}
-                            className="text-lg font-black text-white mb-2 mt-5"
+                            className="text-lg font-black text-zinc-900 mb-2 mt-5"
                         >
                             {children}
                         </motion.h2>
@@ -235,7 +235,7 @@ export function LoopyResponseRenderer({ content }: { content: string }) {
                             initial={{ opacity: 0, x: -6 }}
                             animate={{ opacity: 1, x: 0 }}
                             transition={{ duration: 0.18, ease: 'easeOut' }}
-                            className="text-base font-black text-white/90 mb-2 mt-4"
+                            className="text-base font-black text-zinc-700 mb-2 mt-4"
                         >
                             {children}
                         </motion.h3>
@@ -267,7 +267,7 @@ export function LoopyResponseRenderer({ content }: { content: string }) {
                             );
                         }
 
-                        return <p className="mb-3 last:mb-0 text-white/90 leading-relaxed">{children}</p>;
+                        return <p className="mb-3 last:mb-0 text-zinc-700 leading-relaxed">{children}</p>;
                     },
 
                     // --- Inline elements ---
@@ -275,10 +275,10 @@ export function LoopyResponseRenderer({ content }: { content: string }) {
                         <strong className="font-black text-[#D4F268]">{children}</strong>
                     ),
                     em: ({ children }) => (
-                        <em className="italic text-white/70">{children}</em>
+                        <em className="italic text-zinc-500">{children}</em>
                     ),
                     a: ({ href, children }) => (
-                        <a href={href} target="_blank" rel="noopener noreferrer" className="text-[#D4F268] underline underline-offset-2 hover:text-white transition-colors">
+                        <a href={href} target="_blank" rel="noopener noreferrer" className="text-[#6b8f0d] underline underline-offset-2 hover:text-zinc-900 transition-colors">
                             {children}
                         </a>
                     ),
@@ -288,7 +288,7 @@ export function LoopyResponseRenderer({ content }: { content: string }) {
                         const isInline = !className;
                         if (isInline) {
                             return (
-                                <code className="bg-white/10 text-[#D4F268] px-1.5 py-0.5 rounded font-mono text-[0.85em] font-bold border border-white/10">
+                                <code className="bg-zinc-100 text-[#D4F268] px-1.5 py-0.5 rounded font-mono text-[0.85em] font-bold border border-zinc-200">
                                     {children}
                                 </code>
                             );
@@ -305,7 +305,7 @@ export function LoopyResponseRenderer({ content }: { content: string }) {
                             (child) => React.isValidElement(child)
                         );
                         if (items.length === 0) {
-                            return <ul className="list-disc list-inside space-y-1 my-3 text-white/90">{children}</ul>;
+                            return <ul className="list-disc list-inside space-y-1 my-3 text-zinc-700">{children}</ul>;
                         }
                         const itemContents = items.map((item) => {
                             if (!React.isValidElement(item)) return item;
@@ -341,7 +341,7 @@ export function LoopyResponseRenderer({ content }: { content: string }) {
                                         >
                                             {i + 1}
                                         </motion.span>
-                                        <span className="text-white/90 leading-relaxed font-medium flex-1">
+                                        <span className="text-zinc-700 leading-relaxed font-medium flex-1">
                                             {React.isValidElement(child) ? (child.props as any).children : child}
                                         </span>
                                     </motion.li>
@@ -356,14 +356,14 @@ export function LoopyResponseRenderer({ content }: { content: string }) {
                             initial={{ opacity: 0, borderLeftWidth: 0 }}
                             animate={{ opacity: 1, borderLeftWidth: 4 }}
                             transition={{ duration: 0.3 }}
-                            className="border-l-4 border-[#D4F268]/50 pl-4 my-4 text-white/60 italic"
+                            className="border-l-4 border-[#D4F268]/50 pl-4 my-4 text-zinc-900/60 italic"
                         >
                             {children}
                         </motion.blockquote>
                     ),
 
                     // --- HR ---
-                    hr: () => <hr className="border-white/10 my-6" />,
+                    hr: () => <hr className="border-zinc-200 my-6" />,
                 }}
             />
         </motion.div>

@@ -37,9 +37,10 @@ export function FreeCodeFloatingButton() {
 
                 <div className="relative w-24 h-24 md:w-32 md:h-32 flex items-center justify-center">
                     <Image
-                        src="/freecode.svg"
+                        src="/freecode.png"
                         alt="FreeCode Sandbox"
                         fill
+                        sizes="(max-width: 768px) 96px, 128px"
                         className="object-contain filter drop-shadow-xl"
                     />
                 </div>

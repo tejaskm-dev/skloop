@@ -78,7 +78,7 @@ export default function DailyQuestsWidget({ refreshKey = 0 }: { refreshKey?: num
         setClaimingId(questId);
         if (e) setBurstOrigin({ x: (e.clientX / window.innerWidth) * 100, y: (e.clientY / window.innerHeight) * 100 });
         try {
-            const result = await claimDailyQuest(user.id, questId);
+            const result = await claimDailyQuest(questId);
             if (result.success) {
                 setShowRewardBurst(true);
                 setClaimFeedback({ id: questId, message: result.message });
@@ -112,14 +112,14 @@ export default function DailyQuestsWidget({ refreshKey = 0 }: { refreshKey?: num
         if (!user || claimingId) return;
         setClaimingId(questKey);
         try {
-            const result = await skipQuestWithConsumable(user.id, questKey, activeTab);
+            const result = await skipQuestWithConsumable(questKey, activeTab);
             if (result.success) {
                 setClaimFeedback({ id: questKey, message: "Quest Skipped! ⚡" });
                 await mutate();
                 await refreshProfile();
                 setTimeout(() => setClaimFeedback(null), 3000);
             } else {
-                setClaimFeedback({ id: questKey, message: typeof result.error === 'string' ? result.error : "Failed." });
+                setClaimFeedback({ id: questKey, message: result.message || "Failed." });
                 setTimeout(() => setClaimFeedback(null), 3000);
             }
         } finally {

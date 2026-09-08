@@ -47,8 +47,12 @@ export async function getGlobalLeaderboard(metric: "xp" | "coins" = "xp", limit:
 /**
  * Fetches the friends leaderboard data for a specific user
  */
-export async function getFriendsLeaderboard(userId: string, metric: "xp" | "coins" = "xp") {
+export async function getFriendsLeaderboard(metric: "xp" | "coins" = "xp") {
     const supabase = await createClient();
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+    const userId = user.id;
 
     // 1. Fetch accepted connections
     const { data: connections, error: connError } = await supabase
@@ -93,8 +97,12 @@ export async function getFriendsLeaderboard(userId: string, metric: "xp" | "coin
 /**
  * Fetches the rank of a specific user outside of the top list
  */
-export async function getUserRank(userId: string, metric: "xp" | "coins" = "xp") {
+export async function getUserRank(metric: "xp" | "coins" = "xp") {
     const supabase = await createClient();
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return null;
+    const userId = user.id;
 
     const { data: myProfile, error: profileError } = await supabase
         .from('profiles')

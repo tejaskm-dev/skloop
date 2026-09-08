@@ -24,8 +24,7 @@ export default function AISettingsPage() {
 
     useEffect(() => {
         if (profile && !initialized) {
-            const powers = (profile.active_powers as any) || {};
-            setContextMemory(!!powers.ai_context_memory);
+            setContextMemory(!!(profile as any)?.ai_context_memory);
             setInitialized(true);
         }
     }, [profile, initialized]);
@@ -34,15 +33,13 @@ export default function AISettingsPage() {
         if (!user) return;
         setIsSaving(true);
         try {
-            const currentPowers = (profile?.active_powers as any) || {};
+            // Written to its own column. This preference used to live inside
+            // active_powers, which also carries xp_multiplier / coins_multiplier —
+            // so a client able to save it could also grant itself a reward
+            // multiplier. active_powers is server-only now (migration 001).
             const { error } = await supabase
                 .from("profiles")
-                .update({
-                    active_powers: {
-                        ...currentPowers,
-                        ai_context_memory: contextMemory,
-                    },
-                })
+                .update({ ai_context_memory: contextMemory })
                 .eq("id", user.id);
             if (error) throw error;
             toast("Loopy AI settings saved!", "success");

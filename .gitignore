@@ -42,6 +42,8 @@ next-env.d.ts
 
 # database
 *.sql
+# ...but migrations must be tracked
+!supabase/migrations/*.sql
 
 # environment/python
 .venv/
@@ -53,3 +55,7 @@ venv*
 # logs
 *.log
 .next_log.txt
+
+# lint / build artifacts
+lint_results.json
+lint.log

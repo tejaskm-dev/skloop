@@ -109,12 +109,8 @@ export function CollectionModule() {
 
         setProcessingId(item.id);
         try {
-            const { activateBoostItem } = await import("@/actions/user-actions");
-            const supabase = createClient();
-            const { data: { user } } = await supabase.auth.getUser();
-
-            if (!user) return;
-            const res = await activateBoostItem(user.id, item.id);
+            const { activateBoostItem } = await import("@/actions/shop-actions");
+            const res = await activateBoostItem(item.id);
 
             if (res.success) {
                 toast(`${item.name} activated!`, "success");
@@ -133,10 +129,6 @@ export function CollectionModule() {
     const handleEquip = async (item: any) => {
         setProcessingId(item.id);
         try {
-            const supabase = createClient();
-            const { data: { user } } = await supabase.auth.getUser();
-            if (!user) return;
-
             const isTitle = item.type === "title" || item.category === "title";
             const isRing = item.type === "ring" || item.category === "cosmetic";
             const isFrame = item.type === "avatar_frame";
@@ -144,13 +136,15 @@ export function CollectionModule() {
             const currentEquipped = isTitle ? equippedTitle : isRing ? equippedRing : equippedFrame;
             const alreadyEquipped = currentEquipped === item.id;
 
-            const update: Record<string, string | null> = {};
-            if (isTitle) update.equipped_title = alreadyEquipped ? null : item.id;
-            if (isRing) update.equipped_ring = alreadyEquipped ? null : item.id;
-            if (isFrame) update.equipped_frame = alreadyEquipped ? null : item.id;
+            const slot = isTitle
+                ? "equipped_title"
+                : isRing
+                    ? "equipped_ring"
+                    : "equipped_frame";
 
-            const { error } = await supabase.from("profiles").update(update).eq("id", user.id);
-            if (error) throw error;
+            const { equipCosmetic } = await import("@/actions/shop-actions");
+            const res = await equipCosmetic(slot, alreadyEquipped ? null : item.id);
+            if (!res.success) throw new Error(res.error);
 
             await refreshProfile();
             toast(alreadyEquipped ? `${item.name} unequipped.` : `${item.name} equipped!`, "success");

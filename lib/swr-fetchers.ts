@@ -4,7 +4,7 @@ import { getAvatarUrl } from "./utils";
 
 export const fetchUserTasks = async ([key, userId]: [string, string]) => {
     const { getUserTasks } = await import("@/actions/task-actions");
-    return await getUserTasks(userId);
+    return await getUserTasks();
 };
 
 export const fetchCourseTrack = async ([key, courseId, userId]: [string, string, string]) => {
@@ -446,12 +446,12 @@ export const fetchGlobalLeaderboard = async ([key, metric]: [string, "xp" | "coi
 
 export const fetchFriendsLeaderboard = async ([key, userId, metric]: [string, string, "xp" | "coins"]): Promise<LeaderboardUser[]> => {
     const { getFriendsLeaderboard } = await import("@/actions/leaderboard-actions");
-    return await getFriendsLeaderboard(userId, metric);
+    return await getFriendsLeaderboard(metric);
 };
 
 export const fetchUserRank = async ([key, userId, metric]: [string, string, "xp" | "coins"]) => {
     const { getUserRank } = await import("@/actions/leaderboard-actions");
-    return await getUserRank(userId, metric);
+    return await getUserRank(metric);
 };
 
 export interface ShopData {
@@ -628,7 +628,7 @@ export const fetchDailyQuests = async ([key, userId]: [string, string]) => {
         supabase.from('daily_quest_completions').select('quest_id, auto_progress, cycle_key').eq('user_id', userId).in('cycle_key', [dailyKey, weeklyKey, monthlyKey]),
         supabase.from('user_chests').select('id').eq('user_id', userId).eq('status', 'sealed'),
         supabase.from('user_chests').select('cycle_key').eq('user_id', userId).in('cycle_key', [dailyKey, weeklyKey, monthlyKey]),
-        getResumeCourseSlug(userId)
+        getResumeCourseSlug()
     ]);
 
     const quests = allQuests || [];
@@ -683,7 +683,7 @@ export const fetchDailyQuests = async ([key, userId]: [string, string]) => {
 
 export const fetchHeroCourse = async ([key, userId]: [string, string]) => {
     const { getHeroCourse } = await import("@/actions/course-actions");
-    return await getHeroCourse(userId);
+    return await getHeroCourse();
 };
 
 export const fetchActivityChart = async ([key, userId]: [string, string]) => {
@@ -764,7 +764,7 @@ export const fetchNextWorkshop = async ([key]: [string]) => {
 
 export const fetchSealedChests = async ([key, userId]: [string, string]) => {
     const { getSealedChests } = await import("@/actions/quest-actions");
-    return await getSealedChests(userId);
+    return await getSealedChests();
 };
 
 export const fetchConversations = async ([key, userId]: [string, string]) => {

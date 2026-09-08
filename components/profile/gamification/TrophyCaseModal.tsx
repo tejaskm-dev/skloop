@@ -33,7 +33,7 @@ export function TrophyCaseModal({ isOpen, onClose }: TrophyCaseModalProps) {
         setIsLoading(true);
         const supabase = createClient();
 
-        const sealed = await getSealedChests(user.id);
+        const sealed = await getSealedChests();
         setChests(sealed);
 
         // 1. Shop products from user_inventory table

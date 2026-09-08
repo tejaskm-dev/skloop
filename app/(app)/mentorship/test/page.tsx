@@ -5,9 +5,11 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { ArrowLeft, CheckCircle, AlertCircle, ChevronRight, Calculator, Code, Users, Timer, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { createClient } from "@/utils/supabase/client";
 
 // Mock Questions
+// NOTE: the answer key deliberately does NOT live here. Grading happens in
+// the grant_mentor_via_test() RPC so the quiz can't be beaten by reading
+// the client bundle.
 const QUESTIONS = [
     {
         id: 1,
@@ -19,7 +21,6 @@ const QUESTIONS = [
             "Review their code immediately to find the problem.",
             "Suggest they take a month off."
         ],
-        correct: 1
     },
     {
         id: 2,
@@ -31,7 +32,6 @@ const QUESTIONS = [
             "A developer should only know one programming language.",
             "One server should handle all requests."
         ],
-        correct: 0
     },
     {
         id: 3,
@@ -43,7 +43,6 @@ const QUESTIONS = [
             "Guide them through the problem-solving process without typing the code.",
             "Do it for them this one time."
         ],
-        correct: 2
     },
     {
         id: 4,
@@ -55,7 +54,6 @@ const QUESTIONS = [
             "Wait patiently every time.",
             "Report them to the admin immediately."
         ],
-        correct: 1
     }
 ];
 
@@ -95,36 +93,16 @@ function MentorTestContent() {
         setIsSubmitting(true);
         setCurrentStep(prev => prev + 1); // Loading state
 
-        // Calculate Score
-        let score = 0;
-        finalAnswers.forEach((ans, idx) => {
-            if (ans === QUESTIONS[idx].correct) score++;
-        });
+        // Grading and the mentor grant both happen server-side. The answer key
+        // is no longer in the client bundle, and the browser can no longer
+        // write is_mentor.
+        try {
+            const { submitMentorTest } = await import("@/actions/mentorship-actions");
+            const res = await submitMentorTest(finalAnswers);
 
-        // Backend Update
-        if (score >= 3) {
-            const supabase = createClient();
-            const { data: { user } } = await supabase.auth.getUser();
-
-            if (user) {
-                // Update profile to be a mentor
-                const { error } = await supabase
-                    .from('profiles')
-                    .update({
-                        is_mentor: true,
-                        role: 'Mentor'
-                    })
-                    .eq('id', user.id);
-
-                if (error) {
-                    console.error("Failed to update mentor status:", error);
-                    setResult("fail");
-                    setIsSubmitting(false);
-                    return;
-                }
-            }
-            setResult("pass");
-        } else {
+            setResult(res.success && res.passed ? "pass" : "fail");
+        } catch (err) {
+            console.error("Failed to submit mentor test:", err);
             setResult("fail");
         }
         setIsSubmitting(false);

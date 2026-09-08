@@ -82,8 +82,12 @@ export async function ensureDailyPuzzle(): Promise<{ id: string; word: string } 
 /**
  * Fetches all pending tasks for a specific user
  */
-export async function getUserTasks(userId: string) {
+export async function getUserTasks() {
     const supabase = await createClient();
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+    const userId = user.id;
 
     const { data, error } = await supabase
         .from('user_tasks')
@@ -109,53 +113,54 @@ export async function getUserTasks(userId: string) {
 }
 
 /**
- * Completes a task and grants XP rewards
+ * Completes a task and grants its XP reward.
+ *
+ * Both the acting user and the payout are resolved server-side. The previous
+ * signature was completeTask(userTaskId, userId, xpReward) — the caller chose
+ * its own identity AND its own reward, which made arbitrary XP a one-liner.
+ *
+ * complete_user_task() claims the row atomically (WHERE status = 'pending'),
+ * so double-submits can't pay out twice, and reads xp_reward from the tasks
+ * table.
  */
-export async function completeTask(userTaskId: string, userId: string, xpReward: number) {
+export async function completeTask(userTaskId: string) {
     const supabase = await createClient();
 
-    const { error: taskError } = await supabase
-        .from('user_tasks')
-        .update({ status: 'completed', completed_at: new Date().toISOString() })
-        .eq('id', userTaskId)
-        .eq('user_id', userId);
-
-    if (taskError) {
-        throw new Error("Failed to update task status");
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+        throw new Error("Unauthorized");
     }
 
-    const { data: profile } = await supabase
-        .from('profiles')
-        .select('xp')
-        .eq('id', userId)
-        .single();
+    const { data, error } = await supabase.rpc("complete_user_task", {
+        p_user_task_id: userTaskId,
+    });
 
-    if (!profile) {
-        throw new Error("Profile not found");
+    if (error) {
+        console.error("completeTask RPC error:", error.message);
+        throw new Error("Failed to complete task");
     }
 
-    const newXp = (profile.xp || 0) + xpReward;
-    const newLevel = calculateLevel(newXp);
-    const { error: updateError } = await supabase
-        .from('profiles')
-        .update({ xp: newXp, level: newLevel })
-        .eq('id', userId);
+    const result = data as { success: boolean; error?: string; newXp?: number; xpAwarded?: number };
 
-    if (updateError) {
-        throw new Error("Failed to update profile XP");
+    if (!result?.success) {
+        throw new Error(result?.error || "Failed to complete task");
     }
 
     revalidatePath("/dashboard");
-    return { success: true, newXp };
+    return { success: true, newXp: result.newXp, xpAwarded: result.xpAwarded };
 }
 
 /**
  * Returns the status of daily quests for a user.
  * Checks the daily_quest_completions table first, then falls back to activity checks.
  */
-export async function getQuestStatus(userId: string) {
+export async function getQuestStatus() {
     const supabase = await createClient();
     const todayStr = new Date().toISOString().split('T')[0];
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { login: false, codele: false };
+    const userId = user.id;
 
     // Check daily_quest_completions table
     const { data: completions } = await supabase
@@ -213,11 +218,16 @@ export async function getQuestStatus(userId: string) {
  * Delegates to the new Quest Expansion system under the hood.
  */
 export async function claimDailyQuest(
-    userId: string,
     questId: string
 ): Promise<{ success: boolean; message: string; xpAwarded?: number; coinsAwarded?: number }> {
     const supabase = await createClient();
     const todayStr = new Date().toISOString().split('T')[0];
+
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+        return { success: false, message: 'Unauthorized' };
+    }
+    const userId = user.id;
 
     // 1. Pre-validation for specific quest conditions
     if (questId === 'login') {
@@ -260,27 +270,27 @@ export async function claimDailyQuest(
     let result;
     if (questId === 'login') {
         const [dailyResult] = await Promise.all([
-            claimQuestProgress(userId, 'login',      'daily',   1, 1),
-            claimQuestProgress(userId, 'streak_7',   'weekly',  1, 7),
-            claimQuestProgress(userId, 'streak_20m', 'monthly', 1, 20),
+            claimQuestProgress('login',      'daily'),
+            claimQuestProgress('streak_7',   'weekly'),
+            claimQuestProgress('streak_20m', 'monthly'),
         ]);
         result = dailyResult;
     } else if (questId === 'codele') {
         const [dailyResult] = await Promise.all([
-            claimQuestProgress(userId, 'codele',     'daily',   1, 1),
-            claimQuestProgress(userId, 'codele_3w',  'weekly',  1, 3),
-            claimQuestProgress(userId, 'codele_15m', 'monthly', 1, 15),
+            claimQuestProgress('codele',     'daily'),
+            claimQuestProgress('codele_3w',  'weekly'),
+            claimQuestProgress('codele_15m', 'monthly'),
         ]);
         result = dailyResult;
     } else if (questId === 'type_race') {
          const [dailyResult] = await Promise.all([
-            claimQuestProgress(userId, 'type_race',      'daily',   1, 1),
-            claimQuestProgress(userId, 'type_race_3w',   'weekly',  1, 3),   // FIX 11: correct quest key
-            claimQuestProgress(userId, 'type_race_10m',  'monthly', 1, 10),  // FIX 11: correct quest key
+            claimQuestProgress('type_race',      'daily'),
+            claimQuestProgress('type_race_3w',   'weekly'),   // FIX 11: correct quest key
+            claimQuestProgress('type_race_10m',  'monthly'),  // FIX 11: correct quest key
         ]);
         result = dailyResult;
     } else {
-        result = await claimQuestProgress(userId, questId, 'daily', 1, 1);
+        result = await claimQuestProgress(questId, 'daily');
     }
 
     if (!result.success) {

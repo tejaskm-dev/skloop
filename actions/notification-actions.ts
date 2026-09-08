@@ -2,54 +2,27 @@
 
 import { createClient } from "@/utils/supabase/server";
 
-export interface NotificationPayload {
-    user_id: string;
-    actor_id?: string;
-    type: 'message' | 'achievement' | 'system' | 'mention';
-    title: string;
-    content?: string;
-    metadata?: any;
-}
+// createNotification moved to lib/server/notifications.ts — it was an exported
+// server action, i.e. a public endpoint that let anyone push an arbitrary
+// notification (including type: 'system') to any user. It is only ever called
+// from trusted server flows, so it no longer belongs on the action surface.
 
 /**
- * Creates a new notification for a specific user.
- */
-export async function createNotification(payload: NotificationPayload) {
-    const supabase = await createClient();
-
-    const { data, error } = await supabase
-        .from('notifications')
-        .insert({
-            user_id: payload.user_id,
-            actor_id: payload.actor_id,
-            type: payload.type,
-            title: payload.title,
-            content: payload.content,
-            metadata: payload.metadata || {},
-            is_read: false
-        })
-        .select()
-        .single();
-
-    if (error) {
-        console.error("Error creating notification:", error);
-        return null;
-    }
-
-    return data;
-}
-
-/**
- * Marks notifications as read. 
+ * Marks the CALLER'S notifications as read.
  * Can be filtered by type and metadata (e.g. conversation_id).
  */
-export async function markNotificationsAsRead(userId: string, filter?: { type?: string; conversationId?: string }) {
+export async function markNotificationsAsRead(filter?: { type?: string; conversationId?: string }) {
     const supabase = await createClient();
+
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+        return { success: false, error: "Unauthorized" };
+    }
 
     let query = supabase
         .from('notifications')
         .update({ is_read: true })
-        .eq('user_id', userId)
+        .eq('user_id', user.id)
         .eq('is_read', false);
 
     if (filter?.type) {
@@ -65,7 +38,7 @@ export async function markNotificationsAsRead(userId: string, filter?: { type?: 
 
     if (error) {
         console.error("Error marking notifications as read:", error);
-        return { success: false, error };
+        return { success: false, error: error.message };
     }
 
     return { success: true };

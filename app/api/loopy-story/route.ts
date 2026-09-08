@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import Groq from "groq-sdk";
+import { getGroq, GROQ_UNAVAILABLE } from "@/lib/server/groq";
+import { checkRateLimit } from "@/lib/server/rate-limit";
 import { createClient } from "@/utils/supabase/server";
 import { StoryChapter } from "@/lib/loopy-story";
 import { AUTHORED_CHAPTERS } from "@/lib/story-chapters";
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 const DUNGEON_MASTER_PROMPT = `
 You are a master storyteller narrating "Broken Web: The Rogue Architect", an immersive sci-fi fantasy adventure.
@@ -97,6 +97,12 @@ export async function POST(req: Request) {
         const supabase = await createClient();
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        if (!await checkRateLimit(supabase, "loopy-story", user.id, { limit: 20 })) {
+            return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
+        }
+
+        const groqClient = getGroq();
+        if (!groqClient) return NextResponse.json(GROQ_UNAVAILABLE, { status: 503 });
 
         const { nextChapterId, lastChoice, history, chapterNumber, cycleDecisions, xp, health, maxHealth, inventory } = await req.json();
 
@@ -109,7 +115,7 @@ export async function POST(req: Request) {
 
             // Call Groq for a short Loopy reaction (non-blocking — if it fails we just skip it)
             try {
-                const dialogueCompletion = await groq.chat.completions.create({
+                const dialogueCompletion = await groqClient.chat.completions.create({
                     model: "llama-3.3-70b-versatile",
                     temperature: 0.6,
                     max_tokens: 35,
@@ -171,7 +177,7 @@ ${chapterNumber > 6 ? "The player is deep in the system. Introduce a terrifying 
 ${lastChoice?.wasRisky ? "Player took the risky/hacky path — make this chapter unstable (use corrupted variant) and describe the negative consequences of their hack." : "Player chose the safe path — the system momentarily stabilizes, but a new creeping threat emerges."}
 `;
 
-        const completion = await groq.chat.completions.create({
+        const completion = await groqClient.chat.completions.create({
             model: "llama-3.3-70b-versatile",
             temperature: 0.5,
             max_tokens: 600,

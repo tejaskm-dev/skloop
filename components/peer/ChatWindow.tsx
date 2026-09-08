@@ -695,12 +695,12 @@ export function ChatWindow({ peer, currentUserId, currentUserName, onBack, onPee
             // Mark as read and delivered when loading history
             await markMessagesAsRead(peer.id);
             await markMessagesAsDelivered(peer.id);
-            await markNotificationsAsRead(currentUserId, { conversationId: peer.id });
+            await markNotificationsAsRead({ conversationId: peer.id });
 
             // Check for overdue scheduled messages
-            const overdue = await getOverdueScheduledMessages(peer.id, currentUserId);
+            const overdue = await getOverdueScheduledMessages(peer.id);
             for (const msg of overdue) {
-                await sendMessage(peer.id, currentUserId, msg.content, msg.type);
+                await sendMessage(peer.id, msg.content, msg.type);
                 await markScheduledMessageSent(msg.id);
             }
         };
@@ -800,7 +800,7 @@ export function ChatWindow({ peer, currentUserId, currentUserName, onBack, onPee
                         });
                     if (newMessage.sender_id !== currentUserId) {
                         await markMessagesAsRead(peer.id);
-                        await markNotificationsAsRead(currentUserId, { conversationId: peer.id });
+                        await markNotificationsAsRead({ conversationId: peer.id });
                     }
                     // Mark as delivered if from peer
                     if (newMessage.sender_id !== currentUserId) {
@@ -1142,7 +1142,7 @@ export function ChatWindow({ peer, currentUserId, currentUserName, onBack, onPee
         scrollToBottom();
 
         try {
-            const { message: savedMsg, poll: savedPoll } = await createPoll(peer.id, currentUserId, pollQuestion, options);
+            const { message: savedMsg, poll: savedPoll } = await createPoll(peer.id, pollQuestion, options);
             // Update the optimistic message with real IDs
             setMessages(prev => prev.map(m => m.id === tempId ? {
                 ...m,
@@ -1160,7 +1160,7 @@ export function ChatWindow({ peer, currentUserId, currentUserName, onBack, onPee
         const targetTime = isoTime || scheduledTime;
         if (!peer || !currentUserId || !inputValue || !targetTime) return;
         try {
-            await scheduleMessage(peer.id, currentUserId, inputValue, targetTime);
+            await scheduleMessage(peer.id, inputValue, targetTime);
             setInputValue("");
             setShowSchedulePicker(false);
             setScheduledTime("");
@@ -1393,7 +1393,7 @@ export function ChatWindow({ peer, currentUserId, currentUserName, onBack, onPee
             }
 
             const finalUrl = customUrl || text;
-            const savedMsg = await sendMessage(peer.id, currentUserId, finalUrl, type as any, undefined, uploaded, replyTo?.id);
+            const savedMsg = await sendMessage(peer.id, finalUrl, type as any, undefined, uploaded, replyTo?.id);
 
             // Link local ID to server ID
             if (savedMsg) {
@@ -1576,7 +1576,6 @@ export function ChatWindow({ peer, currentUserId, currentUserName, onBack, onPee
         try {
             const { message: savedMsg } = await sendCodeSnippet(
                 peer.id,
-                currentUserId,
                 snippetTitle || 'Untitled',
                 snippetCode,
                 snippetLang
@@ -1715,7 +1714,7 @@ export function ChatWindow({ peer, currentUserId, currentUserName, onBack, onPee
 
         try {
             const publicUrl = await uploadAttachment(new File([recordedAudio.blob], 'voice-note.webm', { type: 'audio/webm' }));
-            const saved = await sendMessage(peer.id, currentUserId, "", "audio", undefined, [{ url: publicUrl, type: 'audio', name: 'voice-note.webm' }]);
+            const saved = await sendMessage(peer.id, "", "audio", undefined, [{ url: publicUrl, type: 'audio', name: 'voice-note.webm' }]);
             if (saved) {
                 setMessages(prev => prev.map(m => m.id === tempId ? { ...m, id: saved.id, attachments: [{ url: publicUrl, type: 'audio', name: 'voice-note.webm' }] } : m));
                 sentMessageIds.current.add(saved.id);
@@ -1733,7 +1732,7 @@ export function ChatWindow({ peer, currentUserId, currentUserName, onBack, onPee
 
     const handleForward = async (targetPeer: PeerProfile) => {
         if (!forwardMsg || !currentUserId) return;
-        await sendMessage(targetPeer.id, currentUserId, forwardMsg.text || "", forwardMsg.type, forwardMsg.caption, forwardMsg.attachments);
+        await sendMessage(targetPeer.id, forwardMsg.text || "", forwardMsg.type, forwardMsg.caption, forwardMsg.attachments);
         setForwardMsg(null);
         soundManager.playClick(0.5);
     };

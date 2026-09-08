@@ -29,7 +29,7 @@ export function LearningTab() {
         }
 
         const fetchCourses = async () => {
-            const data = await getUserCourses(user.id);
+            const data = await getUserCourses();
 
             if (data) {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -163,9 +163,8 @@ export function PortfolioModule() {
 
                 if (error) throw error;
 
-                const { recordTimelineEvent } = await import('@/actions/quest-actions');
-                await recordTimelineEvent(
-                    user.id,
+                const { recordOwnTimelineEvent } = await import('@/actions/quest-actions');
+                await recordOwnTimelineEvent(
                     "Project Deployed",
                     newProject.title,
                     `Added a new project to the Arsenal: ${newProject.title}`,

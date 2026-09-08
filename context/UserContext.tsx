@@ -88,21 +88,36 @@ export function UserProvider({
         let mounted = true;
 
         const initAuth = async () => {
-            // Re-verify auth state on mount even with SSR to catch stale sessions
-            const { data: { user: authUser } } = await supabase.auth.getUser();
+            // The (app) layout already resolved and verified the session on the
+            // server and handed it down as initialUser/initialProfile. Re-running
+            // getUser() here put another browser -> Supabase Auth round-trip on
+            // the critical path of every page load, followed by a profile fetch
+            // that duplicated data we were already given.
+            //
+            // When SSR supplied a user we trust it (the server verified it) and
+            // skip straight to the daily-login side effect. onAuthStateChange
+            // below still catches sign-out and token refresh, so a session that
+            // goes stale is handled without polling for it here.
+            const authUser = initialUser ?? (await supabase.auth.getUser()).data.user;
 
             if (mounted) {
                 if (authUser) {
                     setUser(authUser);
-                    const fetchedProfile = await fetchProfile(authUser.id);
+
+                    // Only fetch if SSR didn't already give us the profile.
+                    const fetchedProfile = initialProfile ?? await fetchProfile(authUser.id);
+
                     const todayStr = new Date().toISOString().split("T")[0];
                     const processedKey = `${authUser.id}_${todayStr}`;
 
                     if (fetchedProfile && processedRef.current !== processedKey) {
                         processedRef.current = processedKey;
-                        await processDailyLogin(authUser.id);
-                        // Re-fetch profile so XP/level/streak updates are immediately visible
-                        await fetchProfile(authUser.id);
+                        const result = await processDailyLogin(authUser.id);
+                        // Only re-fetch when the login actually changed XP/streak;
+                        // on every load after the first of the day it's a no-op.
+                        if (result?.success && !result.alreadyProcessed) {
+                            await fetchProfile(authUser.id);
+                        }
                     }
                 } else if (!initialUser) {
                     // Only clear if we didn't have an initial SSR user
@@ -193,10 +208,10 @@ export function UserProvider({
         if (!user) return;
 
         // Update once on mount
-        updateLastSeen(user.id);
+        updateLastSeen();
 
         const interval = setInterval(() => {
-            updateLastSeen(user.id);
+            updateLastSeen();
         }, 60000); // 60 seconds
 
         return () => clearInterval(interval);

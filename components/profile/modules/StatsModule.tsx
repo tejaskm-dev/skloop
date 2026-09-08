@@ -36,7 +36,7 @@ export function StatsModule() {
             const supabase = createClient();
 
             // Fetch courses
-            const courseData = await getUserCourses(user.id);
+            const courseData = await getUserCourses();
             if (courseData && courseData.length > 0) {
                 const colors = ["bg-blue-500", "bg-purple-500", "bg-orange-500", "bg-emerald-500"];
                 const formattedCourses = courseData.slice(0, 4).map((uc: any, index: number) => {

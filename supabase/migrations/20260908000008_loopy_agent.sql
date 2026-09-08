@@ -73,6 +73,60 @@ CREATE TABLE IF NOT EXISTS public.loopy_artifact_versions (
 
 
 
+-- ── Reconcile shape ─────────────────────────────────────────────────────────
+-- CREATE TABLE IF NOT EXISTS is a no-op when the table already exists, even if
+-- its shape is wrong. An aborted earlier run can therefore leave a table with
+-- some columns missing, and every later statement that references one fails
+-- with a bare "column does not exist".
+--
+-- These ALTERs bring an existing table up to the expected shape, so this
+-- migration is safe to re-run over partial state rather than requiring a clean
+-- slate. On a fresh database they are all no-ops.
+DO $$
+BEGIN
+    IF to_regclass('public.loopy_conversations') IS NOT NULL THEN
+        ALTER TABLE public.loopy_conversations
+            ADD COLUMN IF NOT EXISTS user_id    uuid,
+            ADD COLUMN IF NOT EXISTS title      text NOT NULL DEFAULT 'New chat',
+            ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now(),
+            ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();
+    END IF;
+
+    IF to_regclass('public.loopy_messages') IS NOT NULL THEN
+        ALTER TABLE public.loopy_messages
+            ADD COLUMN IF NOT EXISTS conversation_id uuid,
+            ADD COLUMN IF NOT EXISTS user_id         uuid,
+            ADD COLUMN IF NOT EXISTS role            text,
+            ADD COLUMN IF NOT EXISTS content         text NOT NULL DEFAULT '',
+            ADD COLUMN IF NOT EXISTS mood            text,
+            ADD COLUMN IF NOT EXISTS tool_calls      jsonb,
+            ADD COLUMN IF NOT EXISTS created_at      timestamptz NOT NULL DEFAULT now();
+    END IF;
+
+    IF to_regclass('public.loopy_artifacts') IS NOT NULL THEN
+        ALTER TABLE public.loopy_artifacts
+            ADD COLUMN IF NOT EXISTS conversation_id uuid,
+            ADD COLUMN IF NOT EXISTS user_id         uuid,
+            ADD COLUMN IF NOT EXISTS slug            text,
+            ADD COLUMN IF NOT EXISTS kind            text,
+            ADD COLUMN IF NOT EXISTS title           text NOT NULL DEFAULT 'Untitled',
+            ADD COLUMN IF NOT EXISTS language        text,
+            ADD COLUMN IF NOT EXISTS content         text NOT NULL DEFAULT '',
+            ADD COLUMN IF NOT EXISTS current_version integer NOT NULL DEFAULT 1,
+            ADD COLUMN IF NOT EXISTS created_at      timestamptz NOT NULL DEFAULT now(),
+            ADD COLUMN IF NOT EXISTS updated_at      timestamptz NOT NULL DEFAULT now();
+    END IF;
+
+    IF to_regclass('public.loopy_artifact_versions') IS NOT NULL THEN
+        ALTER TABLE public.loopy_artifact_versions
+            ADD COLUMN IF NOT EXISTS artifact_id uuid,
+            ADD COLUMN IF NOT EXISTS user_id     uuid,
+            ADD COLUMN IF NOT EXISTS version     integer,
+            ADD COLUMN IF NOT EXISTS content     text NOT NULL DEFAULT '',
+            ADD COLUMN IF NOT EXISTS created_at  timestamptz NOT NULL DEFAULT now();
+    END IF;
+END $$;
+
 -- ── Indexes ─────────────────────────────────────────────────────────────────
 -- Guarded the same way as migration 006. If a CREATE TABLE above was skipped
 -- because the table already existed in a different shape, an unguarded
@@ -136,6 +190,21 @@ BEGIN
         'loopy_conversations', 'loopy_messages',
         'loopy_artifacts', 'loopy_artifact_versions'
     ] LOOP
+        -- Every policy keys off user_id, so skip rather than abort if a table
+        -- is somehow still without it.
+        IF to_regclass('public.' || t) IS NULL THEN
+            RAISE NOTICE 'SKIP policy on % — table does not exist', t;
+            CONTINUE;
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns
+             WHERE table_schema = 'public' AND table_name = t AND column_name = 'user_id'
+        ) THEN
+            RAISE NOTICE 'SKIP policy on % — no user_id column; the table is in an unexpected shape', t;
+            CONTINUE;
+        END IF;
+
         EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', t || '_owner', t);
         EXECUTE format($f$
             CREATE POLICY %I ON public.%I
@@ -143,6 +212,7 @@ BEGIN
                 USING (user_id = (SELECT auth.uid()))
                 WITH CHECK (user_id = (SELECT auth.uid()))
         $f$, t || '_owner', t);
+        RAISE NOTICE 'policy ready on %', t;
     END LOOP;
 END $$;
 

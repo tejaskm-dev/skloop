@@ -315,12 +315,15 @@ export async function POST(req: Request) {
                     hadText: fullText.length > 0,
                 }, null, 2));
 
-                // In development, hand the actual error to the UI — guessing at
-                // a failure from a cheerful message wastes everyone's time.
+                // Always surface something diagnosable. A friendly-only message
+                // is what made this failure opaque across a whole debugging
+                // round-trip; production gets a short code, development the
+                // full text.
+                const raw = e?.error?.message || e?.message || "unknown error";
                 const detail =
                     process.env.NODE_ENV !== "production"
-                        ? ` (${e?.error?.message || e?.message || "unknown error"})`
-                        : "";
+                        ? ` (${raw})`
+                        : ` [${e?.status ?? "err"}: ${String(raw).slice(0, 120)}]`;
 
                 send({
                     type: "error",
@@ -394,7 +397,12 @@ async function resolveConversation(
         .single();
 
     if (error) {
-        console.error("Could not create Loopy conversation:", error.message);
+        console.error("[loopy] could not create conversation", JSON.stringify({
+            message: error.message,
+            code: (error as { code?: string }).code,
+            details: (error as { details?: string }).details,
+            hint: (error as { hint?: string }).hint,
+        }));
         return null;
     }
     return data.id;
@@ -408,11 +416,24 @@ async function persistTurn(
     assistantMessage: string,
     mood: string
 ) {
+    // NOTE: loopy_messages predates this feature — it also carries a chat_id
+    // column from the previous Loopy schema (alongside loopy_chats). If that
+    // column is NOT NULL, these inserts fail. Persistence is best-effort: the
+    // reply has already been streamed to the user, so a storage failure must
+    // not surface as a broken turn.
     const { error } = await supabase.from("loopy_messages").insert([
         { conversation_id: conversationId, user_id: userId, role: "user", content: userMessage },
         { conversation_id: conversationId, user_id: userId, role: "assistant", content: assistantMessage, mood },
     ]);
-    if (error) console.error("Could not persist Loopy turn:", error.message);
+
+    if (error) {
+        console.error("[loopy] could not persist turn", JSON.stringify({
+            message: error.message,
+            code: (error as { code?: string }).code,
+            details: (error as { details?: string }).details,
+            hint: (error as { hint?: string }).hint,
+        }));
+    }
 
     await supabase
         .from("loopy_conversations")

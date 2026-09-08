@@ -1,0 +1,62 @@
+name: CI
+
+# Catches the class of failure that shipped undetected before: a module-scope
+# `throw` on a missing env var broke `next build` entirely, and nothing ran to
+# notice. The build here deliberately runs WITHOUT real secrets so that any
+# code requiring a secret at build time fails here rather than at deploy.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Lint
+        # Style debt is pre-existing and large; surface it without gating on it.
+        run: npx eslint . --quiet
+        continue-on-error: true
+
+      - name: Build
+        # Dummy values only. A build that needs a real secret is a bug — see
+        # lib/server/groq.ts for the pattern that fixed it.
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+        run: npm run build
+
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Dependency audit (production)
+        # Reports without blocking; some advisories need breaking upgrades.
+        run: npm audit --omit=dev --audit-level=high
+        continue-on-error: true

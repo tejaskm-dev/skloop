@@ -2,7 +2,8 @@
 
 import { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Copy, Check, Code2, FileText, Image as ImageIcon, GitBranch, Play } from "lucide-react";
+import { X, Copy, Check, Code2, FileText, Image as ImageIcon, GitBranch, Play, Link2 } from "lucide-react";
+import { SourceList, type Source } from "./ThinkingPanel";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -42,24 +43,35 @@ export function ArtifactPanel({
     activeSlug,
     onSelect,
     onClose,
+    sources = [],
 }: {
     artifacts: LoopyArtifact[];
     activeSlug: string | null;
     onSelect: (slug: string) => void;
     onClose: () => void;
+    /** Pages search_web consulted across this conversation. */
+    sources?: Source[];
 }) {
     const [copied, setCopied] = useState(false);
+    const [tab, setTab] = useState<"artifact" | "sources">("artifact");
 
     const active = useMemo(
         () => artifacts.find((a) => a.slug === activeSlug) ?? artifacts[artifacts.length - 1],
         [artifacts, activeSlug]
     );
 
-    if (!active) return null;
+    // A turn can produce citations without producing an artifact (a plain web
+    // search), so the panel must still open to show Sources.
+    const hasArtifact = Boolean(active);
+    if (!hasArtifact && sources.length === 0) return null;
 
-    const Icon = KIND_ICON[active.kind] ?? Code2;
+    // Force the Sources view when there is nothing else to show.
+    const view = hasArtifact ? tab : "sources";
+
+    const Icon = active ? (KIND_ICON[active.kind] ?? Code2) : Link2;
 
     const copy = () => {
+        if (!active) return;
         navigator.clipboard.writeText(active.content);
         setCopied(true);
         setTimeout(() => setCopied(false), 1800);
@@ -80,22 +92,25 @@ export function ArtifactPanel({
                         <Icon size={17} strokeWidth={2.6} />
                     </div>
                     <div className="min-w-0">
-                        <h2 className="truncate text-sm font-black text-zinc-900">{active.title}</h2>
+                        <h2 className="truncate text-sm font-black text-zinc-900">
+                            {active ? active.title : "Sources"}
+                        </h2>
                         <p className="text-[11px] font-bold uppercase tracking-wider text-zinc-400">
-                            {active.language || active.kind}
-                            {active.version > 1 && ` · v${active.version}`}
+                            {active
+                                ? `${active.language || active.kind}${active.version > 1 ? ` · v${active.version}` : ""}`
+                                : `${sources.length} page${sources.length === 1 ? "" : "s"}`}
                         </p>
                     </div>
                 </div>
 
                 <div className="flex shrink-0 items-center gap-1">
-                    <button
+                    {active && <button
                         onClick={copy}
                         aria-label="Copy artifact"
                         className="rounded-lg p-2 text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900"
                     >
                         {copied ? <Check size={16} className="text-lime-600" /> : <Copy size={16} />}
-                    </button>
+                    </button>}
                     <button
                         onClick={onClose}
                         aria-label="Close panel"
@@ -106,8 +121,32 @@ export function ArtifactPanel({
                 </div>
             </header>
 
+            {/* Artifact / Sources switch, only when citations exist */}
+            {sources.length > 0 && hasArtifact && (
+                <div className="flex shrink-0 gap-1 border-b border-slate-200 px-3 py-2">
+                    <button
+                        onClick={() => setTab("artifact")}
+                        className={`rounded-lg px-3 py-1.5 text-xs font-bold transition-colors ${
+                            view === "artifact" ? "bg-[#D4F268] text-[#050505]" : "text-zinc-500 hover:bg-zinc-100"
+                        }`}
+                    >
+                        Artifact
+                    </button>
+                    <button
+                        onClick={() => setTab("sources")}
+                        className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-colors ${
+                            view === "sources" ? "bg-[#D4F268] text-[#050505]" : "text-zinc-500 hover:bg-zinc-100"
+                        }`}
+                    >
+                        <Link2 size={12} strokeWidth={2.5} />
+                        Sources
+                        <span className="rounded-full bg-black/10 px-1.5 text-[10px]">{sources.length}</span>
+                    </button>
+                </div>
+            )}
+
             {/* Tabs, when a conversation has produced more than one */}
-            {artifacts.length > 1 && (
+            {view === "artifact" && artifacts.length > 1 && (
                 <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-slate-200 px-3 py-2 no-scrollbar">
                     {artifacts.map((a) => (
                         <button
@@ -127,7 +166,11 @@ export function ArtifactPanel({
 
             {/* Body */}
             <div className="min-h-0 flex-1 overflow-auto">
-                <ArtifactBody artifact={active} />
+                {view === "sources" || !active ? (
+                    <SourceList sources={sources} />
+                ) : (
+                    <ArtifactBody artifact={active} />
+                )}
             </div>
         </motion.aside>
     );

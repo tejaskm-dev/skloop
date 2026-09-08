@@ -1,5 +1,7 @@
 import type { createClient } from "@/utils/supabase/server";
 import { wrapUntrusted, AGENT_LIMITS } from "./loopy-security";
+import { searchWeb, isSearchConfigured } from "./web-search";
+import { evaluateExpression } from "./calculator";
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
 
@@ -103,6 +105,61 @@ export const LOOPY_TOOLS = [
             },
         },
     },
+    {
+        type: "function" as const,
+        function: {
+            name: "search_web",
+            description:
+                "Search the web for current information — library versions, recent releases, error messages, documentation, anything that may have changed since training. Use it when the answer depends on something current, or when you are not confident and a citation would help. Always mention that you looked it up.",
+            parameters: {
+                type: "object",
+                properties: {
+                    query: { type: "string", description: "The search query." },
+                },
+                required: ["query"],
+            },
+        },
+    },
+    {
+        type: "function" as const,
+        function: {
+            name: "calculate",
+            description:
+                "Evaluate an arithmetic expression exactly. Use it for any real calculation — Big-O growth, memory sizes, percentages, conversions — rather than doing mental arithmetic, which models get wrong. Supports + - * / % ^, parentheses, and sqrt/abs/floor/ceil/round/min/max/pow/log/log2/log10/exp/sin/cos/tan, plus the constants pi and e.",
+            parameters: {
+                type: "object",
+                properties: {
+                    expression: { type: "string", description: "e.g. '2^20 / 1024' or 'log2(1000000)'" },
+                },
+                required: ["expression"],
+            },
+        },
+    },
+    {
+        type: "function" as const,
+        function: {
+            name: "list_my_projects",
+            description:
+                "List the learner's own FreeCode projects with their file names. Use it when they refer to something they've built ('my portfolio site', 'the project I made') so you can talk about their actual code.",
+            parameters: { type: "object", properties: {} },
+        },
+    },
+    {
+        type: "function" as const,
+        function: {
+            name: "read_project_file",
+            description:
+                "Read one file from one of the learner's own FreeCode projects, so you can review or debug their real code. Call list_my_projects first to get exact project and file names.",
+            parameters: {
+                type: "object",
+                properties: {
+                    project: { type: "string", description: "Project name or slug, from list_my_projects." },
+                    file: { type: "string", description: "File name, e.g. 'index.html'." },
+                },
+                required: ["project", "file"],
+            },
+        },
+    },
 ] as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -146,6 +203,8 @@ export interface ToolContext {
     conversationId: string;
     /** Artifacts written this turn, surfaced to the client for the side panel. */
     artifacts: Array<{ slug: string; kind: string; title: string; language?: string; content: string; version: number }>;
+    /** Web results cited this turn, surfaced to the client's Sources tab. */
+    sources: Array<{ title: string; url: string; domain: string; favicon: string; snippet: string }>;
 }
 
 function truncate(s: string): string {
@@ -289,6 +348,141 @@ export async function executeTool(
                 return `Artifact "${title}" saved as ${slug} (version ${result.version}). It is now visible in the side panel. Do not repeat its contents in your reply — refer to it instead.`;
             }
 
+
+            // ── Web search ──────────────────────────────────────────────────
+            case "search_web": {
+                const query = String(args.query ?? "").slice(0, 300);
+                if (!query.trim()) return "No query supplied.";
+
+                const { results, provider, error } = await searchWeb(query);
+
+                if (error === "not_configured") {
+                    // Distinct from "found nothing" on purpose: the model must not
+                    // tell the learner it searched when no search happened.
+                    return "Web search is not configured on this deployment. Do NOT claim you searched. Answer from your own knowledge and say you couldn't check anything current.";
+                }
+
+                if (error || results.length === 0) {
+                    return `Web search returned no results (provider: ${provider}${error ? `, ${error}` : ""}). Say you looked but found nothing useful, then answer from your own knowledge.`;
+                }
+
+                // Recorded for the Sources tab, so citations are the real pages
+                // that were consulted rather than URLs the model recalled.
+                for (const r of results) {
+                    if (!ctx.sources.some((s) => s.url === r.url)) {
+                        ctx.sources.push({
+                            title: r.title, url: r.url, domain: r.domain,
+                            favicon: r.favicon, snippet: r.snippet,
+                        });
+                    }
+                }
+
+                // Search results are arbitrary web pages — the least trustworthy
+                // input in the system, so they get the same fencing as DB rows.
+                return truncate(
+                    wrapUntrusted(
+                        "web-search",
+                        results.map((r, i) => ({
+                            ref: i + 1,
+                            title: r.title,
+                            url: r.url,
+                            domain: r.domain,
+                            snippet: r.snippet,
+                        }))
+                    ) + "\n\nCite the pages you actually used, by domain."
+                );
+            }
+
+            // ── Calculator ──────────────────────────────────────────────────
+            case "calculate": {
+                const expression = String(args.expression ?? "");
+                if (!expression.trim()) return "No expression supplied.";
+
+                try {
+                    const value = evaluateExpression(expression);
+                    return `${expression} = ${value}`;
+                } catch (err) {
+                    // A rejected expression is normal input, not a failure —
+                    // tell the model so it can rephrase rather than retry blindly.
+                    return `Could not evaluate "${expression}": ${
+                        err instanceof Error ? err.message : "invalid expression"
+                    }. Only arithmetic is supported.`;
+                }
+            }
+
+            // ── The learner's own projects ──────────────────────────────────
+            case "list_my_projects": {
+                const { data, error } = await ctx.supabase
+                    .from("freecode_projects")
+                    .select("name, slug, description, files, updated_at")
+                    .eq("user_id", ctx.userId)
+                    .order("updated_at", { ascending: false })
+                    .limit(20);
+
+                if (error) {
+                    console.error("list_my_projects error:", error.message);
+                    return "Could not list projects.";
+                }
+                if (!data || data.length === 0) {
+                    return "This learner has no FreeCode projects yet. Suggest building one.";
+                }
+
+                // File names and sizes only — contents come from
+                // read_project_file, so listing stays cheap in context.
+                const summary = data.map((p: any) => ({
+                    name: p.name,
+                    slug: p.slug,
+                    description: p.description,
+                    updatedAt: p.updated_at,
+                    files: Array.isArray(p.files)
+                        ? p.files
+                              .filter((f: any) => f?.type === "file")
+                              .map((f: any) => ({ name: f.name, language: f.language, chars: (f.content ?? "").length }))
+                        : [],
+                }));
+
+                return truncate(wrapUntrusted("learner-projects", summary));
+            }
+
+            case "read_project_file": {
+                const projectRef = String(args.project ?? "").slice(0, 120).toLowerCase();
+                const fileName = String(args.file ?? "").slice(0, 120).toLowerCase();
+                if (!projectRef || !fileName) return "Both project and file are required.";
+
+                const { data, error } = await ctx.supabase
+                    .from("freecode_projects")
+                    .select("name, slug, files")
+                    .eq("user_id", ctx.userId)   // scoped to the caller's own projects
+                    .limit(50);
+
+                if (error) {
+                    console.error("read_project_file error:", error.message);
+                    return "Could not read that project.";
+                }
+
+                const project = (data ?? []).find(
+                    (p: any) =>
+                        String(p.slug ?? "").toLowerCase() === projectRef ||
+                        String(p.name ?? "").toLowerCase() === projectRef
+                );
+                if (!project) {
+                    return `No project called "${projectRef}". Call list_my_projects for the exact names.`;
+                }
+
+                const files = Array.isArray((project as any).files) ? (project as any).files : [];
+                const file = files.find(
+                    (f: any) => f?.type === "file" && String(f.name ?? "").toLowerCase() === fileName
+                );
+                if (!file) {
+                    const available = files.filter((f: any) => f?.type === "file").map((f: any) => f.name);
+                    return `No file "${fileName}" in that project. Available: ${available.join(", ") || "none"}.`;
+                }
+
+                return truncate(
+                    wrapUntrusted(`project:${(project as any).name}/${file.name}`, String(file.content ?? ""))
+                );
+            }
+
             // ── Product help ────────────────────────────────────────────────
             case "app_help": {
                 const topic = String(args.topic ?? "").slice(0, 120);
@@ -302,4 +496,16 @@ export async function executeTool(
         console.error(`Loopy tool "${name}" failed:`, err);
         return `The ${name} tool failed. Continue without it and tell the learner you couldn't look that up.`;
     }
+}
+
+/**
+ * The tools actually offered to the model this request.
+ *
+ * search_web is withheld when no provider key is set. Advertising a tool that
+ * always fails wastes a model round-trip and invites the model to claim it
+ * searched when nothing happened.
+ */
+export function getLoopyTools() {
+    const searchReady = isSearchConfigured();
+    return LOOPY_TOOLS.filter((t) => searchReady || t.function.name !== "search_web");
 }

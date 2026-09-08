@@ -521,48 +521,6 @@ export async function applyVeteranPath(): Promise<{ success: boolean; error?: st
     return { success: true };
 }
 
-/**
- * Grades the mentor screening quiz server-side and grants mentor status on a
- * pass. The answer key lives in grant_mentor_via_test(); it used to sit in the
- * client bundle, where the page graded itself and then wrote is_mentor.
- */
-export async function submitMentorTest(answers: number[]): Promise<{
-    success: boolean;
-    passed?: boolean;
-    score?: number;
-    error?: string;
-}> {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return { success: false, error: "Not logged in" };
-
-    if (!Array.isArray(answers) || answers.some(a => !Number.isInteger(a))) {
-        return { success: false, error: "Invalid submission" };
-    }
-
-    const { data, error } = await supabase.rpc("grant_mentor_via_test", {
-        p_answers: answers,
-    });
-
-    if (error) {
-        console.error("submitMentorTest RPC error:", error.message);
-        return { success: false, error: "Could not submit test" };
-    }
-
-    const result = data as { success: boolean; passed?: boolean; score?: number; error?: string };
-
-    if (result?.error) return { success: false, error: result.error };
-
-    if (!result?.passed) {
-        return { success: true, passed: false, score: result?.score ?? 0 };
-    }
-
-    revalidatePath("/mentorship/dashboard");
-    revalidatePath("/mentorship/find");
-
-    return { success: true, passed: true, score: result.score };
-}
-
 export async function getMyMentorStatus(userId?: string): Promise<{
     isMentor: boolean;
     level: number;

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getGroq, GROQ_UNAVAILABLE, GROQ_MODEL, reasoningParams } from "@/lib/server/groq";
 import { checkRateLimit } from "@/lib/server/rate-limit";
 import { createClient } from "@/utils/supabase/server";
-import { LOOPY_TOOLS, executeTool, type ToolContext } from "@/lib/server/loopy-tools";
+import { getLoopyTools, executeTool, type ToolContext } from "@/lib/server/loopy-tools";
 import {
     screenUserInput,
     screenAssistantOutput,
@@ -185,6 +185,7 @@ export async function POST(req: Request) {
                 userId: user.id,
                 conversationId,
                 artifacts: [],
+                sources: [],
             };
 
             let fullText = "";
@@ -203,7 +204,7 @@ export async function POST(req: Request) {
                         ...reasoningParams(),
                         temperature: 0.5,
                         max_tokens: 2000,
-                        tools: LOOPY_TOOLS as unknown as Parameters<
+                        tools: getLoopyTools() as unknown as Parameters<
                             typeof groqClient.chat.completions.create
                         >[0]["tools"],
                         tool_choice: "auto",
@@ -264,16 +265,35 @@ export async function POST(req: Request) {
                         }
                         toolCallsUsed++;
 
-                        send({ type: "tool", name: call.name, status: "running" });
+                        // The thinking panel is driven from these events, so
+                        // every step it shows corresponds to a tool that really
+                        // ran. Nothing is scripted or inferred from the prompt.
+                        const startedAt = Date.now();
+                        send({ type: "tool", name: call.name, status: "running", args: safeArgPreview(call.args) });
 
-                        const before = ctx.artifacts.length;
+                        const beforeArtifacts = ctx.artifacts.length;
+                        const beforeSources = ctx.sources.length;
+
                         const result = await executeTool(call.name, call.args, ctx);
 
-                        for (const a of ctx.artifacts.slice(before)) {
+                        for (const a of ctx.artifacts.slice(beforeArtifacts)) {
                             send({ type: "artifact", artifact: a });
                         }
 
-                        send({ type: "tool", name: call.name, status: "done" });
+                        // New citations go out as they're found, so the Sources
+                        // tab fills in during the turn rather than after it.
+                        const newSources = ctx.sources.slice(beforeSources);
+                        if (newSources.length > 0) {
+                            send({ type: "sources", sources: newSources });
+                        }
+
+                        send({
+                            type: "tool",
+                            name: call.name,
+                            status: "done",
+                            ms: Date.now() - startedAt,
+                        });
+
                         messages.push({ role: "tool", tool_call_id: call.id, content: result });
                     }
                 }
@@ -294,7 +314,7 @@ export async function POST(req: Request) {
                 }
 
                 await persistTurn(supabase, user.id, conversationId, message, visible, mood);
-                send({ type: "done", mood, conversationId });
+                send({ type: "done", mood, conversationId, sources: ctx.sources });
             } catch (err) {
                 // Surface the real cause. The generic "syntax crashed" message
                 // gave no way to tell a Groq rejection from a database failure
@@ -353,6 +373,23 @@ export async function POST(req: Request) {
  * True when it's safe to forward this delta — i.e. we are not part-way through
  * emitting the trailing `[[mood:...]]` marker.
  */
+
+/**
+ * A short, display-safe preview of a tool's arguments for the thinking panel
+ * ("Searching the web — react 19 release notes"). Model-supplied, so it is
+ * truncated and stripped of newlines before it reaches the UI.
+ */
+function safeArgPreview(rawArgs: string): string {
+    try {
+        const parsed = JSON.parse(rawArgs || "{}") as Record<string, unknown>;
+        const first = parsed.query ?? parsed.topic ?? parsed.expression ?? parsed.title ?? parsed.file;
+        if (typeof first !== "string") return "";
+        return first.replace(/\s+/g, " ").slice(0, 80);
+    } catch {
+        return "";
+    }
+}
+
 function stripPartialMood(accumulated: string): boolean {
     const tail = accumulated.slice(-12);
     return !tail.includes("[[mood") && !tail.includes("[[moo") && !tail.endsWith("[[");

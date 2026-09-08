@@ -6,14 +6,8 @@ import { Send, Terminal, Sparkles } from "lucide-react";
 import { LoopyMascot } from "@/components/loopy/LoopyMascot";
 import { LoopyResponseRenderer } from "@/components/loopy/LoopyResponseRenderer";
 import { ArtifactPanel, ArtifactChip, type LoopyArtifact } from "@/components/loopy/ArtifactPanel";
+import { ThinkingPanel, SourceList, type ToolStep, type Source } from "@/components/loopy/ThinkingPanel";
 
-
-const TOOL_LABELS: Record<string, string> = {
-    search_curriculum: "Searching Skloop lessons",
-    get_my_progress: "Checking your progress",
-    create_artifact: "Building that out",
-    app_help: "Looking that up",
-};
 
 type Message = {
     id: string;
@@ -22,8 +16,10 @@ type Message = {
     mood?: string;
     /** Slugs of artifacts produced on this turn, shown as chips in the transcript. */
     artifactSlugs?: string[];
-    /** Tool the agent is currently running, surfaced while streaming. */
-    activeTool?: string | null;
+    /** Tools that actually ran this turn, with real durations. */
+    toolSteps?: ToolStep[];
+    /** Pages search_web actually consulted. */
+    sources?: Source[];
 };
 
 export default function LoopyChatPage({ params }: { params: Promise<{ id: string }> }) {
@@ -141,7 +137,8 @@ export default function LoopyChatPage({ params }: { params: Promise<{ id: string
             content: "",
             mood: "thinking",
             artifactSlugs: [],
-            activeTool: null,
+            toolSteps: [],
+            sources: [],
         }]);
 
         const patchAssistant = (fn: (m: Message) => Message) => {
@@ -191,10 +188,33 @@ export default function LoopyChatPage({ params }: { params: Promise<{ id: string
                             break;
 
                         case "tool":
-                            patchAssistant(m => ({
-                                ...m,
-                                activeTool: evt.status === "running" ? evt.name : null,
-                            }));
+                            patchAssistant(m => {
+                                const steps = [...(m.toolSteps ?? [])];
+                                if (evt.status === "running") {
+                                    steps.push({ name: evt.name, args: evt.args, status: "running" });
+                                } else {
+                                    // Close the most recent open step for this tool.
+                                    for (let i = steps.length - 1; i >= 0; i--) {
+                                        if (steps[i].name === evt.name && steps[i].status === "running") {
+                                            steps[i] = { ...steps[i], status: "done", ms: evt.ms };
+                                            break;
+                                        }
+                                    }
+                                }
+                                return { ...m, toolSteps: steps };
+                            });
+                            break;
+
+                        case "sources":
+                            patchAssistant(m => {
+                                const existing = m.sources ?? [];
+                                const seen = new Set(existing.map(s => s.url));
+                                const merged = [...existing];
+                                for (const src of evt.sources as Source[]) {
+                                    if (!seen.has(src.url)) { seen.add(src.url); merged.push(src); }
+                                }
+                                return { ...m, sources: merged };
+                            });
                             break;
 
                         case "artifact": {
@@ -214,7 +234,15 @@ export default function LoopyChatPage({ params }: { params: Promise<{ id: string
 
                         case "done":
                             if (evt.conversationId) conversationIdRef.current = evt.conversationId;
-                            patchAssistant(m => ({ ...m, mood: evt.mood || "happy", activeTool: null }));
+                            patchAssistant(m => ({
+                                ...m,
+                                mood: evt.mood || "happy",
+                                // Any step still open when the turn ends is closed,
+                                // so nothing spins forever after a failure.
+                                toolSteps: (m.toolSteps ?? []).map(t =>
+                                    t.status === "running" ? { ...t, status: "done" as const } : t
+                                ),
+                            }));
                             break;
 
                         case "error":
@@ -222,7 +250,9 @@ export default function LoopyChatPage({ params }: { params: Promise<{ id: string
                                 ...m,
                                 content: m.content || evt.message,
                                 mood: "screaming",
-                                activeTool: null,
+                                toolSteps: (m.toolSteps ?? []).map(t =>
+                                    t.status === "running" ? { ...t, status: "done" as const } : t
+                                ),
                             }));
                             break;
                     }
@@ -243,7 +273,19 @@ export default function LoopyChatPage({ params }: { params: Promise<{ id: string
 
     const isNew = messages.length === 0;
 
-    const showPanel = panelOpen && artifacts.length > 0;
+    // Citations from every turn, de-duplicated, for the panel's Sources tab.
+    const allSources = (() => {
+        const seen = new Set<string>();
+        const out: Source[] = [];
+        for (const m of messages) {
+            for (const src of m.sources ?? []) {
+                if (!seen.has(src.url)) { seen.add(src.url); out.push(src); }
+            }
+        }
+        return out;
+    })();
+
+    const showPanel = (panelOpen && artifacts.length > 0) || (panelOpen && allSources.length > 0);
 
     return (
         <div className="flex h-full w-full min-h-0 relative z-10 selection:bg-[#D4F268] selection:text-black">
@@ -316,15 +358,13 @@ export default function LoopyChatPage({ params }: { params: Promise<{ id: string
                                     `}>
                                         {msg.role === "assistant" ? (
                                             <>
-                                                {/* Live tool indicator while the agent works */}
-                                                {msg.activeTool && (
-                                                    <div className="mb-3 flex items-center gap-2 text-[13px] font-bold text-[#D4F268]">
-                                                        <span className="h-2 w-2 animate-pulse rounded-full bg-[#D4F268]" />
-                                                        {TOOL_LABELS[msg.activeTool] ?? "Working"}…
-                                                    </div>
-                                                )}
+                                                <ThinkingPanel steps={msg.toolSteps ?? []} />
 
                                                 <LoopyResponseRenderer content={msg.content} />
+
+                                                {msg.sources && msg.sources.length > 0 && (
+                                                    <SourceList sources={msg.sources} compact />
+                                                )}
 
                                                 {/* Artifacts produced on this turn */}
                                                 {(msg.artifactSlugs ?? []).map(slug => {
@@ -348,7 +388,7 @@ export default function LoopyChatPage({ params }: { params: Promise<{ id: string
                         ))}
                     </AnimatePresence>
 
-                    {isLoading && messages[messages.length - 1]?.content === "" && !messages[messages.length - 1]?.activeTool && (
+                    {isLoading && messages[messages.length - 1]?.content === "" && (messages[messages.length - 1]?.toolSteps ?? []).length === 0 && (
                         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex gap-4 md:gap-6">
                             <div className="shrink-0 mt-1">
                                 <div className="w-12 h-12 rounded-2xl bg-[#050505] flex items-center justify-center shadow-[0_8px_0_rgba(0,0,0,0.2)] border-2 border-slate-800 relative overflow-hidden">
@@ -421,6 +461,7 @@ export default function LoopyChatPage({ params }: { params: Promise<{ id: string
                             activeSlug={activeArtifact}
                             onSelect={setActiveArtifact}
                             onClose={() => setPanelOpen(false)}
+                            sources={allSources}
                         />
                     </div>
                 )}

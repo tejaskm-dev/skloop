@@ -36,13 +36,13 @@ export const LOOPY_TOOLS = [
         function: {
             name: "search_curriculum",
             description:
-                "Search Skloop's own lessons, topics and DSA content. Use this whenever the learner asks about a concept that the platform teaches, so you can answer from the actual course material and point them at the right lesson — rather than answering from memory.",
+                "Search Skloop's own lessons and DSA content. Use for concepts the platform teaches, so you answer from real course material and can point at the lesson.",
             parameters: {
                 type: "object",
                 properties: {
                     query: {
                         type: "string",
-                        description: "Search terms, e.g. 'binary search' or 'flexbox alignment'.",
+                        description: "Search terms.",
                     },
                 },
                 required: ["query"],
@@ -54,7 +54,7 @@ export const LOOPY_TOOLS = [
         function: {
             name: "get_my_progress",
             description:
-                "Fetch the current learner's own progress: level, XP, streak, courses in flight and recently completed topics. Use it to personalise guidance and to pick a next step that follows on from what they've actually done.",
+                "The learner's own level, XP, streak, active courses and recently completed topics. Use to personalise and pick a next step.",
             parameters: { type: "object", properties: {} },
         },
     },
@@ -63,19 +63,18 @@ export const LOOPY_TOOLS = [
         function: {
             name: "create_artifact",
             description:
-                "Create or update a substantial, self-contained piece of work shown in a side panel next to the chat — runnable code, a diagram, a written explainer, a visual. Use it when the content is something the learner will read, keep, or come back to, rather than a sentence or two of conversation. Calling it again with the same slug updates that artifact and creates a new version, so prefer updating over making near-duplicates.",
+                "Show work in a side panel: a diagram, visual, interactive demo, explainer, or SHORT code skeleton. Never a complete implementation — code artifacts are capped and longer ones refused. Same slug = new version, so update rather than duplicate.",
             parameters: {
                 type: "object",
                 properties: {
                     slug: {
                         type: "string",
-                        description:
-                            "Short stable kebab-case handle, e.g. 'binary-search-demo'. Reuse it to update the same artifact.",
+                        description: "Stable kebab-case handle. Reuse to update.",
                     },
                     kind: {
                         type: "string",
                         enum: ["code", "markdown", "html", "svg", "mermaid"],
-                        description: "code for runnable snippets, mermaid for flowcharts, html for interactive demos.",
+                        description: "mermaid=diagrams, html=interactive, code=snippets, svg=figures, markdown=prose.",
                     },
                     title: { type: "string", description: "Human-readable title." },
                     language: {
@@ -93,13 +92,13 @@ export const LOOPY_TOOLS = [
         function: {
             name: "app_help",
             description:
-                "Answer questions about how Skloop itself works — XP, levels, streaks, coins, quests, chests, the shop, mentorship, or where to find a feature. Use it for 'how do I…' questions about the product rather than about code.",
+                "How Skloop itself works: XP, levels, streaks, coins, quests, chests, shop, mentorship. For product questions, not code.",
             parameters: {
                 type: "object",
                 properties: {
                     topic: {
                         type: "string",
-                        description: "What they're asking about, e.g. 'streaks' or 'how to become a mentor'.",
+                        description: "The topic.",
                     },
                 },
                 required: ["topic"],
@@ -111,7 +110,7 @@ export const LOOPY_TOOLS = [
         function: {
             name: "search_web",
             description:
-                "Search the web for current information — library versions, recent releases, error messages, documentation, anything that may have changed since training. Use it when the answer depends on something current, or when you are not confident and a citation would help. Always mention that you looked it up.",
+                "Search the web for current information: library versions, releases, docs, error messages. Use when the answer depends on something recent. Say you looked it up.",
             parameters: {
                 type: "object",
                 properties: {
@@ -126,11 +125,11 @@ export const LOOPY_TOOLS = [
         function: {
             name: "calculate",
             description:
-                "Evaluate an arithmetic expression exactly. Use it for any real calculation — Big-O growth, memory sizes, percentages, conversions — rather than doing mental arithmetic, which models get wrong. Supports + - * / % ^, parentheses, and sqrt/abs/floor/ceil/round/min/max/pow/log/log2/log10/exp/sin/cos/tan, plus the constants pi and e.",
+                "Evaluate arithmetic exactly — use instead of mental maths. Supports + - * / %% ^, parentheses, sqrt/abs/floor/ceil/round/min/max/pow/log/log2/log10/exp/sin/cos/tan, pi, e.",
             parameters: {
                 type: "object",
                 properties: {
-                    expression: { type: "string", description: "e.g. '2^20 / 1024' or 'log2(1000000)'" },
+                    expression: { type: "string", description: "e.g. '2^20 / 1024'" },
                 },
                 required: ["expression"],
             },
@@ -141,7 +140,7 @@ export const LOOPY_TOOLS = [
         function: {
             name: "list_my_projects",
             description:
-                "List the learner's own FreeCode projects with their file names. Use it when they refer to something they've built ('my portfolio site', 'the project I made') so you can talk about their actual code.",
+                "List the learner's FreeCode projects and file names. Use when they mention something they built.",
             parameters: { type: "object", properties: {} },
         },
     },
@@ -150,12 +149,12 @@ export const LOOPY_TOOLS = [
         function: {
             name: "read_project_file",
             description:
-                "Read one file from one of the learner's own FreeCode projects, so you can review or debug their real code. Call list_my_projects first to get exact project and file names.",
+                "Read one file from the learner's FreeCode project. Call list_my_projects first for exact names.",
             parameters: {
                 type: "object",
                 properties: {
-                    project: { type: "string", description: "Project name or slug, from list_my_projects." },
-                    file: { type: "string", description: "File name, e.g. 'index.html'." },
+                    project: { type: "string", description: "Project name or slug." },
+                    file: { type: "string", description: "File name." },
                 },
                 required: ["project", "file"],
             },
@@ -247,6 +246,20 @@ interface ProjectRow {
     updated_at?: string;
     files?: ProjectFileNode[];
 }
+
+/**
+ * Loopy is a tutor, so a complete working program is the wrong answer even when
+ * it's a correct one — it removes the part the learner was meant to do.
+ *
+ * The system prompt says so, but prompt guidance loses to the pull of being
+ * helpful, especially once artifacts encourage "finished" work. This enforces
+ * it where it cannot be argued around: a code artifact past this length is
+ * refused and the model is told to send a skeleton instead.
+ *
+ * Diagrams, explainers and interactive demos are exempt. The concern is
+ * handing over an implementation, not showing someone a structure.
+ */
+const MAX_CODE_ARTIFACT_LINES = Number(process.env.LOOPY_MAX_CODE_LINES ?? 24);
 
 const DAY_SECONDS = 86_400;
 const MONTH_SECONDS = 30 * DAY_SECONDS;
@@ -401,6 +414,19 @@ export async function executeTool(
                 }
                 if (content.length > 100_000) {
                     return "That artifact is too large — keep it under 100,000 characters.";
+                }
+
+                // Teaching constraint, enforced rather than requested.
+                if (kind === "code") {
+                    const lines = content.split("\n").filter((l) => l.trim().length > 0);
+                    if (lines.length > MAX_CODE_ARTIFACT_LINES) {
+                        return [
+                            `Refused: that is ${lines.length} lines of code, and you are a tutor — handing over a complete implementation removes the part the learner was meant to do.`,
+                            `Send at most ${MAX_CODE_ARTIFACT_LINES} lines: the struct or signatures, one representative function, and TODO comments marking what they should write.`,
+                            "Then explain the approach in your reply and invite them to attempt the rest. If they come back having tried, or say they're stuck, you can fill in a specific piece.",
+                            "Nothing was saved. Call create_artifact again with a skeleton.",
+                        ].join(" ");
+                    }
                 }
 
                 const { data, error } = await ctx.supabase.rpc("upsert_loopy_artifact", {

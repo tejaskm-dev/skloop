@@ -35,6 +35,7 @@ const TOOL_META: Record<string, { label: string; verb: string; Icon: typeof Glob
     read_project_file: { label: "Your code",      verb: "Reading your code",       Icon: FileCode,   tint: "text-rose-500" },
     create_artifact:   { label: "Artifact",       verb: "Building that out",       Icon: Sparkles,   tint: "text-fuchsia-500" },
     app_help:          { label: "Skloop help",    verb: "Looking that up",         Icon: BookOpen,   tint: "text-teal-500" },
+    rate_limit:        { label: "Busy",           verb: "Waiting for capacity",    Icon: Loader2,    tint: "text-amber-500" },
 };
 
 function fmtDuration(ms?: number): string {

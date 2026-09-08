@@ -11,45 +11,87 @@
 --     .update({ coins: 999999999, plan: 'pro', is_mentor: true })
 --     .eq('id', myUserId)
 --
--- It is split out from 001 so the rollout is zero-downtime: the additive
--- migrations and the new code can go out first, and this flips the switch once
--- nothing is writing these columns from the browser any more.
+-- HOW THIS WORKS
 --
--- Rollback, if something was missed:
---   GRANT UPDATE ON public.profiles TO authenticated;
+-- Rather than naming columns to grant (which fails if your schema doesn't have
+-- one of them), this inverts the problem: it revokes UPDATE/INSERT wholesale,
+-- then re-grants every column of public.profiles EXCEPT a protected denylist.
+--
+-- That ordering is the safe one. A column that exists but that neither list
+-- anticipated stays writable — the app keeps working. A column on the denylist
+-- that doesn't exist is simply skipped. And any column added to profiles in
+-- future is writable by default, so re-run this migration after adding one that
+-- should be protected.
+--
+-- Rollback:
+--   GRANT UPDATE, INSERT ON public.profiles TO authenticated;
 -- ============================================================================
 
-REVOKE UPDATE ON public.profiles FROM authenticated, anon;
+DO $$
+DECLARE
+    -- Server-only. Reachable through the SECURITY DEFINER RPCs in 002 and 003.
+    protected_cols text[] := ARRAY[
+        'coins', 'xp', 'level', 'streak', 'streak_shields',   -- the economy
+        'inventory', 'active_powers',                          -- items and boosts
+        'equipped_title', 'equipped_ring', 'equipped_frame',   -- cosmetics (ownership-checked)
+        'is_mentor', 'role',                                   -- authorization
+        'plan', 'plan_expires_at',                             -- billing entitlement
+        'last_seen',                                           -- presence (was spoofable)
+        'id', 'created_at'                                     -- identity
+    ];
+    updatable  text;
+    insertable text;
+BEGIN
+    IF to_regclass('public.profiles') IS NULL THEN
+        RAISE EXCEPTION 'public.profiles does not exist — nothing to lock down';
+    END IF;
 
--- Only the cosmetic / preference columns the UI legitimately edits.
-GRANT UPDATE (
-    full_name,
-    username,
-    bio,
-    avatar_url,
-    banner_url,
-    location,
-    website,
-    tracks,
-    notification_preferences,
-    ai_context_memory,
-    updated_at
-) ON public.profiles TO authenticated;
+    -- Everything that exists and is not protected.
+    SELECT string_agg(quote_ident(column_name), ', ')
+      INTO updatable
+      FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND table_name   = 'profiles'
+       AND column_name <> ALL (protected_cols)
+       AND is_generated = 'NEVER'
+       AND is_updatable = 'YES';
 
--- Columns deliberately NOT granted — server-only, reachable through the
--- SECURITY DEFINER RPCs in migrations 002 and 003:
---
---   coins, xp, level, streak, streak_shields   -- the economy
---   inventory, active_powers, equipped_*       -- items, boosts, cosmetics
---   is_mentor, role                            -- authorization
---   plan, plan_expires_at                      -- billing entitlement
---   last_seen                                  -- presence (was spoofable)
---   id, created_at                             -- identity
+    -- Signup needs to write id; the rest mirrors the updatable set.
+    SELECT string_agg(quote_ident(column_name), ', ')
+      INTO insertable
+      FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND table_name   = 'profiles'
+       AND (column_name = 'id' OR column_name <> ALL (protected_cols))
+       AND is_generated = 'NEVER';
+
+    IF updatable IS NULL THEN
+        RAISE EXCEPTION 'No updatable columns resolved — refusing to lock out all writes';
+    END IF;
+
+    REVOKE UPDATE, INSERT ON public.profiles FROM authenticated, anon;
+
+    EXECUTE format('GRANT UPDATE (%s) ON public.profiles TO authenticated', updatable);
+    EXECUTE format('GRANT INSERT (%s) ON public.profiles TO authenticated', insertable);
+
+    RAISE NOTICE 'profiles: client may now UPDATE only -> %', updatable;
+    RAISE NOTICE 'profiles: protected columns are server-only via RPC';
+END $$;
 
 -- anon should never write profiles at all.
 REVOKE ALL ON public.profiles FROM anon;
 GRANT SELECT ON public.profiles TO anon;
 
--- Privilege columns must not be settable at INSERT time either.
-REVOKE INSERT ON public.profiles FROM authenticated, anon;
-GRANT INSERT (id, full_name, username, avatar_url, tracks) ON public.profiles TO authenticated;
+-- ── Verification ────────────────────────────────────────────────────────────
+-- Confirms the economy and privilege columns are no longer client-writable.
+-- Every row this returns is a column the browser can still write.
+--
+--   SELECT column_name
+--     FROM information_schema.column_privileges
+--    WHERE table_schema = 'public'
+--      AND table_name   = 'profiles'
+--      AND grantee      = 'authenticated'
+--      AND privilege_type = 'UPDATE'
+--    ORDER BY column_name;
+--
+-- coins, xp, plan and is_mentor must NOT appear in that list.

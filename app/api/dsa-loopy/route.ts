@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getGroq, GROQ_UNAVAILABLE, GROQ_MODEL } from "@/lib/server/groq";
+import { getGroq, GROQ_UNAVAILABLE, GROQ_MODEL, reasoningParams } from "@/lib/server/groq";
 import { checkRateLimit } from "@/lib/server/rate-limit";
 import { createClient } from "@/utils/supabase/server";
 
@@ -52,6 +52,7 @@ export async function POST(req: Request) {
                 ...contextMessages,
             ],
             model: GROQ_MODEL,
+            ...reasoningParams(),
             temperature: 0.5,
             max_tokens: 400,
             stream: false,

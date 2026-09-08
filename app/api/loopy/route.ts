@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getGroq, GROQ_UNAVAILABLE, GROQ_MODEL, reasoningParams } from "@/lib/server/groq";
 import { checkRateLimit } from "@/lib/server/rate-limit";
 import { createClient } from "@/utils/supabase/server";
-import { getLoopyTools, executeTool, type ToolContext } from "@/lib/server/loopy-tools";
+import { getLoopyTools, executeTool, SELECTABLE_TOOLS, type ToolContext } from "@/lib/server/loopy-tools";
 import {
     screenUserInput,
     screenAssistantOutput,
@@ -131,7 +131,7 @@ export async function POST(req: Request) {
     const groqClient = getGroq();
     if (!groqClient) return NextResponse.json(GROQ_UNAVAILABLE, { status: 503 });
 
-    let body: { message?: string; history?: unknown; conversationId?: string };
+    let body: { message?: string; history?: unknown; conversationId?: string; tools?: unknown };
     try {
         body = await req.json();
     } catch {
@@ -157,6 +157,14 @@ export async function POST(req: Request) {
     if (!conversationId) {
         return NextResponse.json({ error: "Could not start conversation" }, { status: 500 });
     }
+
+    // Tools the user explicitly enabled, filtered against the allowlist so a
+    // crafted request can't name anything outside it.
+    const enabledTools = Array.isArray(body.tools)
+        ? (body.tools as unknown[])
+              .filter((t): t is string => typeof t === "string")
+              .filter((t) => (SELECTABLE_TOOLS as readonly string[]).includes(t))
+        : undefined;
 
     const history = Array.isArray(body.history)
         ? (body.history as HistoryEntry[])
@@ -207,7 +215,7 @@ export async function POST(req: Request) {
                         ...reasoningParams(),
                         temperature: 0.5,
                         max_tokens: 2000,
-                        tools: getLoopyTools() as unknown as Parameters<
+                        tools: getLoopyTools(enabledTools) as unknown as Parameters<
                             typeof groqClient.chat.completions.create
                         >[0]["tools"],
                         tool_choice: "auto",

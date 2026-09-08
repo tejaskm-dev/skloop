@@ -67,6 +67,17 @@ const nextConfig: NextConfig = {
       { protocol: 'https', hostname: 'i.ytimg.com' },
       { protocol: 'https', hostname: 'ui-avatars.com' },
       { protocol: 'https', hostname: 'avatars.githubusercontent.com' },
+      // Google OAuth profile photos. Their absence here was returning 400 from
+      // the optimizer for every Google-signed-in user, so avatars silently fell
+      // back to initials.
+      { protocol: 'https', hostname: 'lh3.googleusercontent.com' },
+      { protocol: 'https', hostname: '*.googleusercontent.com' },
+      // Other common OAuth avatar hosts.
+      { protocol: 'https', hostname: 'cdn.discordapp.com' },
+      { protocol: 'https', hostname: 'pbs.twimg.com' },
+      { protocol: 'https', hostname: 'gravatar.com' },
+      { protocol: 'https', hostname: 'www.gravatar.com' },
+      { protocol: 'https', hostname: 'secure.gravatar.com' },
       { protocol: 'https', hostname: 'image.mux.com' },
     ],
   },

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getGroq, GROQ_UNAVAILABLE } from "@/lib/server/groq";
+import { getGroq, GROQ_UNAVAILABLE, GROQ_MODEL, reasoningParams } from "@/lib/server/groq";
 import { checkRateLimit } from "@/lib/server/rate-limit";
 import { createClient } from "@/utils/supabase/server";
 
@@ -62,7 +62,8 @@ export async function POST(req: Request) {
                 { role: "system", content: systemPrompt },
                 { role: "user", content: userPrompt },
             ],
-            model: "llama-3.3-70b-versatile",
+            model: GROQ_MODEL,
+            ...reasoningParams(),
             response_format: { type: "json_object" },
             temperature: 0.6,
             max_tokens: 600,

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getGroq, GROQ_UNAVAILABLE } from "@/lib/server/groq";
+import { getGroq, GROQ_UNAVAILABLE, GROQ_MODEL, reasoningParams } from "@/lib/server/groq";
 import { checkRateLimit } from "@/lib/server/rate-limit";
 import { createClient } from "@/utils/supabase/server";
 import { StoryChapter } from "@/lib/loopy-story";
@@ -116,7 +116,8 @@ export async function POST(req: Request) {
             // Call Groq for a short Loopy reaction (non-blocking — if it fails we just skip it)
             try {
                 const dialogueCompletion = await groqClient.chat.completions.create({
-                    model: "llama-3.3-70b-versatile",
+                    model: GROQ_MODEL,
+                    ...reasoningParams(),
                     temperature: 0.6,
                     max_tokens: 35,
                     messages: [{
@@ -178,7 +179,8 @@ ${lastChoice?.wasRisky ? "Player took the risky/hacky path — make this chapter
 `;
 
         const completion = await groqClient.chat.completions.create({
-            model: "llama-3.3-70b-versatile",
+            model: GROQ_MODEL,
+            ...reasoningParams(),
             temperature: 0.5,
             max_tokens: 600,
             response_format: { type: "json_object" },

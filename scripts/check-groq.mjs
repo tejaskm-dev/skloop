@@ -32,7 +32,7 @@ if (!KEY) {
     process.exit(1);
 }
 
-const MODEL = "llama-3.3-70b-versatile";
+const MODEL = process.env.LOOPY_MODEL || "llama-3.1-8b-instant";
 const URL = "https://api.groq.com/openai/v1/chat/completions";
 
 const TOOLS = [
@@ -140,7 +140,13 @@ console.log("  tools ................. " + (tools ? "ok" : "FAILED"));
 console.log("  tools + streaming ..... " + (both ? "ok" : "FAILED"));
 console.log("═".repeat(60));
 
-if (!both && tools && streaming) {
+if (!plain && !streaming && !tools && !both) {
+    console.log("\n=> EVERY request failed identically, so it is not tools or");
+    console.log("   streaming — it is the request basics: the model name, the key,");
+    console.log("   or account access. Read the error body above; a 404 with");
+    console.log("   model_not_found means the model is gone or unavailable to you.");
+    console.log("   Run: node scripts/list-groq-models.mjs");
+} else if (!both && tools && streaming) {
     console.log("\n=> Groq rejects tools+streaming together for this model.");
     console.log("   Fix: drop stream:true on steps that pass tools, or switch model.");
 } else if (!tools) {

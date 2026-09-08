@@ -196,13 +196,28 @@ const DailyDealCard = memo(({
             className="group relative flex flex-col p-[2px] transition-all duration-300 z-10 col-span-1 md:col-span-2 lg:col-span-1 h-full min-h-[16rem] rounded-[28px]"
         >
             <div className="absolute inset-0 rounded-[28px] overflow-hidden" style={{ transform: "translateZ(-1px)" }}>
-                {/* Animated Conic Border Glow */}
-                <div className="absolute inset-[-100%] z-0 animate-[spin_4s_linear_infinite]" 
-                     style={{ background: `conic-gradient(from 0deg, transparent 0 340deg, ${item.accentColor} 360deg)` }} 
+                {/* Animated Conic Border Glow.
+                    willChange promotes this to its own compositor layer so the
+                    rotation runs on the GPU as a pure transform, with no repaint. */}
+                <div className="absolute inset-[-100%] z-0 animate-[spin_4s_linear_infinite]"
+                     style={{
+                         background: `conic-gradient(from 0deg, transparent 0 340deg, ${item.accentColor} 360deg)`,
+                         willChange: "transform",
+                     }}
                 />
                 {/* Outer static border */}
                 <div className={`absolute inset-0 z-0 bg-zinc-950/40 border border-white/10 rounded-[28px] opacity-80 group-hover:opacity-100 transition-opacity duration-300 ${rarity.glow}`} />
-                <div className="absolute inset-[2px] bg-zinc-950/95 backdrop-blur-3xl z-0 rounded-[26px]" />
+                {/* Inner background.
+                    This deliberately has NO backdrop-filter. It sits at 95% opacity
+                    over the spinning conic gradient above, so a backdrop blur was
+                    contributing ~5% of an already-smooth gradient — visually a no-op.
+                    It was, however, extremely expensive: backdrop-filter caches its
+                    rasterized backdrop, and an element animating behind it
+                    invalidates that cache every single frame, forcing a 64px
+                    Gaussian blur re-computation per card per frame. Removing it
+                    changes nothing on screen and lets the ring above composite on
+                    the GPU untouched. */}
+                <div className="absolute inset-[2px] bg-zinc-950/95 z-0 rounded-[26px]" />
             </div>
 
             {/* Inner Content Component applying 3D popup depth */}
@@ -342,8 +357,12 @@ const ShopItemCard = memo(({
                 {/* Outer Glowing Border layer */}
                 <div className={`absolute inset-0 z-0 bg-transparent border-2 ${rarity.border} opacity-80 group-hover:opacity-100 transition-opacity duration-300 ${rarity.glow}`} style={{ borderRadius: 'inherit' }} />
                 
-                {/* Dark Inner Background */}
-                <div className="absolute inset-[2px] bg-zinc-950/90 backdrop-blur-xl z-0" style={{ borderRadius: 'inherit' }} />
+                {/* Dark Inner Background.
+                    Backdrop blur reduced 24px -> 4px. Blur cost scales sharply with
+                    radius, and at 90% opacity the difference between the two is not
+                    perceptible. The backdrop here is static (no animation behind it),
+                    so it stays cacheable and the effect is kept rather than removed. */}
+                <div className="absolute inset-[2px] bg-zinc-950/90 backdrop-blur-sm z-0" style={{ borderRadius: 'inherit' }} />
             </div>
 
             {/* Inner Content Component */}

@@ -34,9 +34,41 @@ const nextConfig: NextConfig = {
   },
 
   images: {
-    // Long cache for optimized images; they're content-hashed by path.
+    // Long cache for optimized images.
     minimumCacheTTL: 60 * 60 * 24 * 30,
     formats: ['image/avif', 'image/webp'],
+
+    // Device/image widths the optimizer will generate. Trimmed to the sizes this
+    // app actually renders — avatars (32-96px) and cards — so fewer variants get
+    // generated and cached.
+    deviceSizes: [640, 750, 828, 1080, 1200, 1920],
+    imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],
+
+    // ── Remote hosts ───────────────────────────────────────────────────────
+    // Without these, next/image cannot touch any remotely-hosted image, which
+    // is why avatars and uploads were all raw <img> tags served at full
+    // original resolution — a multi-megabyte upload rendered into a 40px
+    // circle, on every leaderboard row and chat message.
+    //
+    // Vercel's optimizer does the resizing and format conversion, so this works
+    // regardless of the Supabase plan (Supabase's own image transformation is a
+    // paid add-on; this route doesn't need it).
+    remotePatterns: [
+      // Supabase Storage — avatars, banners, chat attachments.
+      { protocol: 'https', hostname: '*.supabase.co', pathname: '/storage/v1/object/public/**' },
+      // GIF pickers used in chat.
+      { protocol: 'https', hostname: 'media.giphy.com' },
+      { protocol: 'https', hostname: 'media*.giphy.com' },
+      { protocol: 'https', hostname: 'media.tenor.com' },
+      { protocol: 'https', hostname: 'c.tenor.com' },
+      // Content imagery and fallbacks.
+      { protocol: 'https', hostname: 'images.unsplash.com' },
+      { protocol: 'https', hostname: 'img.youtube.com' },
+      { protocol: 'https', hostname: 'i.ytimg.com' },
+      { protocol: 'https', hostname: 'ui-avatars.com' },
+      { protocol: 'https', hostname: 'avatars.githubusercontent.com' },
+      { protocol: 'https', hostname: 'image.mux.com' },
+    ],
   },
 
   async headers() {

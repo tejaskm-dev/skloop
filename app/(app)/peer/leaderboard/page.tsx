@@ -65,7 +65,19 @@ export default function LeaderboardPage() {
     return (
         <div className={`flex flex-col bg-[#0a0f0a] min-h-screen relative text-white ${meltedMonster.variable}`}>
             {/* Gamified Texture Overlay and Slime Waterfall */}
-            <div className="absolute inset-0 z-0 opacity-10 mix-blend-overlay pointer-events-none" style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E")` }}></div>
+            <div
+                className="absolute inset-0 z-0 opacity-10 mix-blend-overlay pointer-events-none"
+                style={{
+                    // Was an inline SVG data URI running feTurbulence (fractalNoise,
+                    // 3 octaves) — procedural noise the browser had to rasterise on
+                    // every page load, embedded in the HTML each render. Swapped for
+                    // an equivalent pre-rendered 128px tile: same grain at this
+                    // opacity, no filter work, and HTTP-cacheable across pages.
+                    backgroundImage: 'url("/noise.png")',
+                    backgroundRepeat: "repeat",
+                    backgroundSize: "128px 128px",
+                }}
+            ></div>
             <SlimeWaterfall />
             
             {/* Header with Totals */}

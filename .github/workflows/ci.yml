@@ -27,8 +27,32 @@ jobs:
           node-version: 20
           cache: npm
 
+      # The registry occasionally drops connections mid-install (ECONNRESET).
+      # Without retries CI fails on infrastructure rather than on code, and a
+      # workflow that cries wolf is one people learn to ignore.
+      - name: Configure npm retries
+        run: |
+          npm config set fetch-retries 5
+          npm config set fetch-retry-mintimeout 20000
+          npm config set fetch-retry-maxtimeout 120000
+          npm config set fetch-timeout 600000
+
       - name: Install
-        run: npm ci --no-audit --no-fund
+        run: |
+          for attempt in 1 2 3; do
+            echo "::group::npm ci (attempt $attempt/3)"
+            if npm ci --no-audit --no-fund; then
+              echo "::endgroup::"
+              exit 0
+            fi
+            echo "::endgroup::"
+            echo "attempt $attempt failed"
+            # A partial install can leave node_modules inconsistent.
+            rm -rf node_modules
+            sleep $((attempt * 15))
+          done
+          echo "npm ci failed after 3 attempts"
+          exit 1
 
       - name: Typecheck
         run: npx tsc --noEmit
@@ -57,6 +81,7 @@ jobs:
           cache: npm
 
       - name: Dependency audit (production)
-        # Reports without blocking; some advisories need breaking upgrades.
+        # Reports without blocking; some advisories need breaking upgrades, and
+        # a registry hiccup here should never fail the run either.
         run: npm audit --omit=dev --audit-level=high
         continue-on-error: true

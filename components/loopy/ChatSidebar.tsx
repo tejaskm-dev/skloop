@@ -2,161 +2,305 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { MessageSquare, Plus, PanelLeftClose, PanelLeft, Trash2 } from "lucide-react";
-import { useState, useEffect } from "react";
+import {
+    MessageSquare, Plus, Compass, Route, Trophy, Settings,
+    Search, MoreHorizontal, Trash2, PanelLeft,
+} from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import useSWR from "swr";
+import { useUser } from "@/context/UserContext";
+import type { LoopyConversationSummary } from "@/actions/loopy-actions";
+
+/**
+ * Loopy's sidebar.
+ *
+ * Conversations come from Postgres rather than the previous localStorage array
+ * of `{id, title}`, so entries carry a real preview line and timestamp and
+ * survive a device change.
+ *
+ * Nav destinations are existing routes only — Learning Paths is the roadmap,
+ * Achievements is the profile. Nothing here links somewhere that doesn't exist.
+ */
+
+const NAV = [
+    { label: "Explore Prompts", href: "/loopy", Icon: Compass },
+    { label: "Learning Paths", href: "/roadmap", Icon: Route },
+    { label: "Achievements", href: "/profile", Icon: Trophy },
+    { label: "Settings", href: "/settings/ai", Icon: Settings },
+];
+
+function timeAgo(iso: string): string {
+    const secs = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+    if (secs < 60) return "just now";
+    const mins = Math.floor(secs / 60);
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    const days = Math.floor(hrs / 24);
+    if (days < 30) return `${days}d ago`;
+    return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+const fetchConversations = async () => {
+    const { listMyConversations } = await import("@/actions/loopy-actions");
+    return listMyConversations();
+};
 
 export function ChatSidebar() {
     const pathname = usePathname();
     const router = useRouter();
+    const { user, profile } = useUser();
+
     const [collapsed, setCollapsed] = useState(false);
-    const [chats, setChats] = useState<{id: string, title: string}[]>([]); 
-    
-    const loadChats = () => {
-        try {
-            const saved = localStorage.getItem("loopy_chats_list");
-            if (saved) setChats(JSON.parse(saved));
-        } catch (e) {
-            console.error("Failed to load chats", e);
-        }
-    };
+    const [query, setQuery] = useState("");
+    const [menuFor, setMenuFor] = useState<string | null>(null);
+
+    const { data, mutate } = useSWR<LoopyConversationSummary[]>(
+        user ? ["loopyConversations", user.id] : null,
+        fetchConversations,
+        { revalidateOnFocus: false }
+    );
+
+    const conversations = data ?? [];
 
     useEffect(() => {
-        if (window.innerWidth < 768) setCollapsed(true);
-        loadChats();
-        
-        window.addEventListener("storage", loadChats);
-        window.addEventListener("loopy_chats_updated", loadChats);
-        return () => {
-            window.removeEventListener("storage", loadChats);
-            window.removeEventListener("loopy_chats_updated", loadChats);
-        };
+        if (window.innerWidth < 1024) setCollapsed(true);
     }, []);
 
-    const handleNewChat = () => {
-        const newId = Date.now().toString();
-        const newChats = [{ id: newId, title: "Untitled Chat" }, ...chats];
-        setChats(newChats);
-        try {
-            localStorage.setItem("loopy_chats_list", JSON.stringify(newChats));
-            window.dispatchEvent(new Event("loopy_chats_updated"));
-        } catch (e) {}
+    // The chat page fires this after a turn so a new conversation appears.
+    useEffect(() => {
+        const refresh = () => mutate();
+        window.addEventListener("loopy_chats_updated", refresh);
+        return () => window.removeEventListener("loopy_chats_updated", refresh);
+    }, [mutate]);
 
-        router.push(`/loopy/chat/${newId}`);
-        if (window.innerWidth < 768) setCollapsed(true);
+    const newChat = useCallback(() => {
+        router.push("/loopy/chat/new");
+    }, [router]);
+
+    // ⌘K / Ctrl+K starts a new chat, matching the affordance shown on the button.
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => {
+            if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+                e.preventDefault();
+                newChat();
+            }
+        };
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+    }, [newChat]);
+
+    const remove = async (id: string) => {
+        setMenuFor(null);
+        mutate(conversations.filter((c) => c.id !== id), { revalidate: false });
+        const { deleteConversation } = await import("@/actions/loopy-actions");
+        await deleteConversation(id);
+        mutate();
+        if (pathname.includes(id)) router.push("/loopy/chat/new");
     };
 
-    const handleDeleteChat = (e: React.MouseEvent, idToDelete: string) => {
-        e.preventDefault();
-        e.stopPropagation();
-        const updatedChats = chats.filter(c => c.id !== idToDelete);
-        setChats(updatedChats);
-        try {
-            localStorage.setItem("loopy_chats_list", JSON.stringify(updatedChats));
-            localStorage.removeItem(`loopy_chat_${idToDelete}`);
-            window.dispatchEvent(new Event("loopy_chats_updated"));
-        } catch (error) {}
-        
-        if (pathname.includes(`/chat/${idToDelete}`)) {
-            router.push('/loopy/chat/new');
-        }
-    };
+    const filtered = query.trim()
+        ? conversations.filter(
+              (c) =>
+                  c.title.toLowerCase().includes(query.toLowerCase()) ||
+                  (c.preview ?? "").toLowerCase().includes(query.toLowerCase())
+          )
+        : conversations;
+
+    const level = profile?.level ?? 1;
+    const xp = profile?.xp ?? 0;
+    const xpIntoLevel = xp % 500;
+
+    if (collapsed) {
+        return (
+            <aside className="flex h-full w-[68px] shrink-0 flex-col items-center gap-3 border-r border-zinc-200 bg-white py-4">
+                <button
+                    onClick={() => setCollapsed(false)}
+                    aria-label="Expand sidebar"
+                    className="rounded-xl p-2.5 text-zinc-500 transition-colors hover:bg-zinc-100"
+                >
+                    <PanelLeft size={18} />
+                </button>
+                <button
+                    onClick={newChat}
+                    aria-label="New chat"
+                    className="rounded-2xl bg-[#050505] p-3 text-white transition-transform active:scale-95"
+                >
+                    <Plus size={18} strokeWidth={3} />
+                </button>
+            </aside>
+        );
+    }
 
     return (
-        <motion.div 
-            initial={false}
-            animate={{ width: collapsed ? 80 : 300 }}
-            className="h-full bg-[#FAFAF8] border-r-2 border-slate-200 flex flex-col shrink-0 overflow-hidden relative z-40 transition-shadow shadow-[20px_0_40px_rgba(0,0,0,0.03)]"
-        >
-            <div className="p-5 flex items-center justify-between">
-                <AnimatePresence>
-                    {!collapsed && (
-                        <motion.span 
-                            initial={{ opacity: 0 }} 
-                            animate={{ opacity: 1 }} 
-                            exit={{ opacity: 0 }} 
-                            className="font-black text-[#050505] tracking-wide text-sm flex items-center gap-2"
-                        >
-                            Loopy Guide
-                        </motion.span>
-                    )}
-                </AnimatePresence>
-                <button 
-                    onClick={() => setCollapsed(!collapsed)}
-                    className="p-2 hover:bg-slate-100 rounded-xl text-slate-500 hover:text-black transition-all active:scale-95 border-2 border-transparent hover:border-slate-200"
+        <aside className="flex h-full w-[272px] shrink-0 flex-col border-r border-zinc-200 bg-white">
+            {/* Brand */}
+            <div className="flex items-center gap-2.5 px-5 pb-4 pt-5">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#050505]">
+                    <span className="text-lg font-black text-[#D4F268]">n</span>
+                </div>
+                <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                        <h1 className="text-xl font-black tracking-tight text-[#050505]">Loopy</h1>
+                        <span className="rounded-md bg-[#D4F268] px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-[#050505]">
+                            Beta
+                        </span>
+                    </div>
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+                        Learn · Build · Level Up
+                    </p>
+                </div>
+                <button
+                    onClick={() => setCollapsed(true)}
+                    aria-label="Collapse sidebar"
+                    className="rounded-lg p-1.5 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-700"
                 >
-                    {collapsed ? <PanelLeft size={18} /> : <PanelLeftClose size={18} />}
+                    <PanelLeft size={16} />
                 </button>
             </div>
 
-            <div className="px-4 pb-6">
-                <button 
-                    onClick={handleNewChat}
-                    className={`flex items-center gap-3 w-full bg-[#D4F268] hover:bg-[#bef264] border-b-4 border-r-2 border-t-2 border-l-2 border-[#b5db3b] text-[#050505] py-3 rounded-2xl transition-all active:translate-y-1 active:border-b-2 shadow-sm
-                        ${collapsed ? 'justify-center px-0' : 'px-4'}`}
+            {/* New chat */}
+            <div className="px-3 pb-2">
+                <button
+                    onClick={newChat}
+                    className="flex w-full items-center gap-2.5 rounded-2xl bg-[#050505] px-4 py-3 text-sm font-black text-white transition-transform active:scale-[0.98]"
                 >
-                    <Plus size={18} strokeWidth={3} className="transition-transform duration-300" />
-                    {!collapsed && <span className="font-extrabold text-sm">New Session</span>}
+                    <Plus size={16} strokeWidth={3} />
+                    New Chat
+                    <kbd className="ml-auto rounded bg-white/15 px-1.5 py-0.5 font-mono text-[10px] font-bold">
+                        ⌘K
+                    </kbd>
                 </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto px-4 space-y-2 no-scrollbar scroll-smooth">
-                {!collapsed && chats.length > 0 && (
-                    <div className="px-2 pt-2 pb-3 text-[10px] font-black uppercase tracking-widest text-slate-400">
-                        Recent History
-                    </div>
-                )}
-                
-                {chats.length === 0 && !collapsed && (
-                    <div className="text-center p-4 text-slate-400 text-xs font-bold mt-10 opacity-60">
-                        No recent chats. Start a new session!
-                    </div>
+            {/* Nav */}
+            <nav className="px-3 py-2">
+                {NAV.map(({ label, href, Icon }) => (
+                    <Link
+                        key={href}
+                        href={href}
+                        className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-bold text-zinc-600 transition-colors hover:bg-zinc-100 hover:text-zinc-900"
+                    >
+                        <Icon size={16} strokeWidth={2.5} className="text-zinc-400" />
+                        {label}
+                    </Link>
+                ))}
+            </nav>
+
+            {/* Recent */}
+            <div className="flex min-h-0 flex-1 flex-col px-3 pt-2">
+                <div className="mb-1 flex items-center justify-between px-2">
+                    <span className="text-[11px] font-black uppercase tracking-widest text-zinc-400">
+                        Recent Chats
+                    </span>
+                    <Search size={13} className="text-zinc-400" />
+                </div>
+
+                {conversations.length > 6 && (
+                    <input
+                        value={query}
+                        onChange={(e) => setQuery(e.target.value)}
+                        placeholder="Search chats..."
+                        aria-label="Search conversations"
+                        className="mb-2 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-medium outline-none focus:border-[#D4F268]"
+                    />
                 )}
 
-                {chats.map((chat) => {
-                    const isActive = pathname.includes(`/chat/${chat.id}`) || (chat.id === "new" && pathname.endsWith("/chat/new"));
-                    return (
-                        <Link 
-                            key={chat.id} 
-                            href={`/loopy/chat/${chat.id}`}
-                            className={`flex items-center gap-3 w-full py-3.5 rounded-2xl transition-all group relative overflow-hidden font-bold border-2
-                                ${collapsed ? 'justify-center px-0' : 'px-4'}
-                                ${isActive 
-                                    ? 'bg-white border-slate-200 text-black shadow-sm' 
-                                    : 'border-transparent text-slate-500 hover:bg-slate-100 hover:text-black hover:border-slate-200'
-                                }
-                            `}
-                        >
-                            {isActive && !collapsed && (
-                                <motion.div layoutId="activeChat" className="absolute left-0 top-0 w-1.5 h-full bg-[#D4F268] rounded-r-md" />
-                            )}
-                            <MessageSquare size={18} strokeWidth={2.5} className={`shrink-0 transition-colors ${isActive ? 'text-[#050505]' : 'text-slate-400 group-hover:text-black'}`} />
-                            {!collapsed && (
-                                <>
-                                    <div className="flex flex-col items-start truncate overflow-hidden flex-1">
-                                        <span className="text-sm truncate w-full">{chat.title}</span>
-                                    </div>
-                                    <button 
-                                        onClick={(e) => handleDeleteChat(e, chat.id)}
-                                        className="opacity-0 group-hover:opacity-100 p-1.5 text-slate-400 hover:text-red-500 hover:bg-slate-200 rounded-lg transition-all"
+                <ul className="min-h-0 flex-1 space-y-0.5 overflow-y-auto no-scrollbar pb-3">
+                    {filtered.length === 0 ? (
+                        <li className="px-2 py-6 text-center text-xs font-medium text-zinc-400">
+                            {query ? "No matches." : "No chats yet — start one above."}
+                        </li>
+                    ) : (
+                        filtered.map((c) => {
+                            const active = pathname.includes(c.id);
+                            return (
+                                <li key={c.id} className="group relative">
+                                    <Link
+                                        href={`/loopy/chat/${c.id}`}
+                                        className={`block rounded-xl px-3 py-2.5 transition-colors ${
+                                            active ? "bg-[#F4FBE4]" : "hover:bg-zinc-50"
+                                        }`}
                                     >
-                                        <Trash2 size={16} />
+                                        <span className="flex items-start gap-2.5">
+                                            <MessageSquare
+                                                size={14}
+                                                className={`mt-0.5 shrink-0 ${active ? "text-[#7ca80f]" : "text-zinc-400"}`}
+                                            />
+                                            <span className="min-w-0 flex-1">
+                                                <span className="block truncate text-[13px] font-bold text-zinc-900">
+                                                    {c.title}
+                                                </span>
+                                                {c.preview && (
+                                                    <span className="mt-0.5 block truncate text-[11px] font-medium text-zinc-400">
+                                                        {c.preview}
+                                                    </span>
+                                                )}
+                                                <span className="mt-0.5 block text-[10px] font-bold text-zinc-300">
+                                                    {timeAgo(c.updatedAt)}
+                                                </span>
+                                            </span>
+                                        </span>
+                                    </Link>
+
+                                    <button
+                                        onClick={(e) => { e.preventDefault(); setMenuFor(menuFor === c.id ? null : c.id); }}
+                                        aria-label={`Options for ${c.title}`}
+                                        className="absolute right-2 top-2.5 rounded-md p-1 text-zinc-400 opacity-0 transition-opacity hover:bg-zinc-200 group-hover:opacity-100"
+                                    >
+                                        <MoreHorizontal size={14} />
                                     </button>
-                                </>
-                            )}
-                        </Link>
-                    );
-                })}
+
+                                    <AnimatePresence>
+                                        {menuFor === c.id && (
+                                            <motion.div
+                                                initial={{ opacity: 0, scale: 0.95 }}
+                                                animate={{ opacity: 1, scale: 1 }}
+                                                exit={{ opacity: 0, scale: 0.95 }}
+                                                className="absolute right-2 top-9 z-20 overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-lg"
+                                            >
+                                                <button
+                                                    onClick={() => remove(c.id)}
+                                                    className="flex w-full items-center gap-2 px-3 py-2 text-xs font-bold text-rose-600 transition-colors hover:bg-rose-50"
+                                                >
+                                                    <Trash2 size={13} /> Delete
+                                                </button>
+                                            </motion.div>
+                                        )}
+                                    </AnimatePresence>
+                                </li>
+                            );
+                        })
+                    )}
+                </ul>
             </div>
 
-            <div className="p-4 mt-auto border-t-2 border-slate-200 bg-slate-50">
-                <Link href="/loopy" className={`flex items-center gap-3 w-full text-slate-600 hover:text-black hover:bg-slate-200 border-2 border-transparent hover:border-slate-300 py-3 rounded-2xl transition-all font-bold ${collapsed ? 'justify-center px-0' : 'px-4'}`}>
-                    <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" strokeWidth="3" fill="none" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M15 18l-6-6 6-6" />
-                    </svg>
-                    {!collapsed && <span className="text-sm tracking-wide">Exit to Dial</span>}
-                </Link>
+            {/* Level */}
+            <div className="space-y-2 border-t border-zinc-100 p-3">
+                <div className="flex items-center gap-3 rounded-2xl bg-zinc-50 px-3 py-2.5">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#D4F268] text-lg">
+                        🐸
+                    </div>
+                    <div className="min-w-0 flex-1">
+                        <p className="text-xs font-black text-zinc-900">Level {level}</p>
+                        <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-zinc-200">
+                            <div
+                                className="h-full rounded-full bg-[#a3d417] transition-all"
+                                style={{ width: `${Math.min(100, (xpIntoLevel / 500) * 100)}%` }}
+                            />
+                        </div>
+                        <p className="mt-1 text-[10px] font-bold text-zinc-400">{xpIntoLevel} / 500 XP</p>
+                    </div>
+                </div>
+
+                <div className="rounded-2xl bg-[#F4FBE4] px-3 py-2.5">
+                    <p className="text-[11px] font-black text-zinc-900">Keep going!</p>
+                    <p className="text-[10px] font-medium leading-snug text-zinc-500">
+                        Great questions lead to greater developers.
+                    </p>
+                </div>
             </div>
-        </motion.div>
+        </aside>
     );
 }

@@ -80,6 +80,8 @@ This line is stripped before display — never mention it.
 `.trim();
 
 const MOOD_RE = /\[\[mood:(\w+)\]\]\s*$/;
+/** Longest marker is "[[mood:celebrating]]" (20 chars); hold a little more. */
+const MOOD_HOLDBACK = 24;
 const VALID_MOODS = new Set([
     "happy", "surprised", "annoyed", "thinking", "celebrating",
     "screaming", "huddled", "awakened", "warrior",
@@ -186,6 +188,7 @@ export async function POST(req: Request) {
                 conversationId,
                 artifacts: [],
                 sources: [],
+                searchCount: 0,
             };
 
             let fullText = "";
@@ -212,6 +215,8 @@ export async function POST(req: Request) {
                     });
 
                     let stepText = "";
+                    // How much of stepText has already been streamed to the client.
+                    let emittedChars = 0;
                     // Tool calls arrive in fragments across chunks and must be
                     // reassembled by index before they can be parsed.
                     const pending = new Map<number, { id: string; name: string; args: string }>();
@@ -222,10 +227,15 @@ export async function POST(req: Request) {
 
                         if (delta.content) {
                             stepText += delta.content;
-                            // Hold back the trailing mood marker so it never flashes on screen.
-                            const safe = stripPartialMood(stepText);
-                            if (safe) {
-                                send({ type: "delta", text: delta.content });
+
+                            // Hold back the tail so a partially-streamed mood
+                            // marker can never reach the screen. Everything
+                            // before the held window is safe to emit because the
+                            // marker only ever appears at the very end.
+                            const safeUpTo = Math.max(0, stepText.length - MOOD_HOLDBACK);
+                            if (safeUpTo > emittedChars) {
+                                send({ type: "delta", text: stepText.slice(emittedChars, safeUpTo) });
+                                emittedChars = safeUpTo;
                             }
                         }
 
@@ -238,6 +248,10 @@ export async function POST(req: Request) {
                             pending.set(idx, slot);
                         }
                     }
+
+                    // Flush whatever was held back, minus the mood marker.
+                    const tail = stepText.slice(emittedChars).replace(MOOD_RE, "");
+                    if (tail) send({ type: "delta", text: tail });
 
                     fullText += stepText;
 
@@ -369,10 +383,6 @@ export async function POST(req: Request) {
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * True when it's safe to forward this delta — i.e. we are not part-way through
- * emitting the trailing `[[mood:...]]` marker.
- */
 
 /**
  * A short, display-safe preview of a tool's arguments for the thinking panel
@@ -388,11 +398,6 @@ function safeArgPreview(rawArgs: string): string {
     } catch {
         return "";
     }
-}
-
-function stripPartialMood(accumulated: string): boolean {
-    const tail = accumulated.slice(-12);
-    return !tail.includes("[[mood") && !tail.includes("[[moo") && !tail.endsWith("[[");
 }
 
 /** Streams a fixed reply without involving the model (used for blocked input). */

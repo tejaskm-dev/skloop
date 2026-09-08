@@ -1,6 +1,7 @@
 import type { createClient } from "@/utils/supabase/server";
 import { wrapUntrusted, AGENT_LIMITS } from "./loopy-security";
 import { searchWeb, isSearchConfigured } from "./web-search";
+import { checkRateLimit } from "./rate-limit";
 import { evaluateExpression } from "./calculator";
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
@@ -205,7 +206,50 @@ export interface ToolContext {
     artifacts: Array<{ slug: string; kind: string; title: string; language?: string; content: string; version: number }>;
     /** Web results cited this turn, surfaced to the client's Sources tab. */
     sources: Array<{ title: string; url: string; domain: string; favicon: string; snippet: string }>;
+    /** Searches performed this turn, for the per-turn cap. */
+    searchCount: number;
 }
+
+/**
+ * Search budgets.
+ *
+ * Tavily's free tier is 1,000 credits per MONTH shared across the whole
+ * application, not per user. Without caps a single user could exhaust it in
+ * minutes — the turn limit alone allows 20 turns/minute, each able to call a
+ * tool up to 8 times.
+ *
+ * Three layers, cheapest check first:
+ *   per turn  — stops one question fanning out into many searches
+ *   per user  — stops one person consuming everyone's quota
+ *   global    — a hard ceiling below the plan's limit, so the bill cannot run
+ *
+ * The global cap is deliberately under 1,000 to leave headroom, and every limit
+ * is env-overridable so they can be raised on a paid plan without a redeploy.
+ */
+const SEARCH_LIMITS = {
+    PER_TURN: Number(process.env.LOOPY_SEARCH_PER_TURN ?? 2),
+    PER_USER_PER_DAY: Number(process.env.LOOPY_SEARCH_PER_USER_DAY ?? 15),
+    GLOBAL_PER_MONTH: Number(process.env.LOOPY_SEARCH_GLOBAL_MONTH ?? 800),
+} as const;
+
+/** Shape of the FreeCode rows these tools read. */
+interface ProjectFileNode {
+    name?: string;
+    type?: string;
+    content?: string;
+    language?: string;
+}
+
+interface ProjectRow {
+    name?: string;
+    slug?: string;
+    description?: string;
+    updated_at?: string;
+    files?: ProjectFileNode[];
+}
+
+const DAY_SECONDS = 86_400;
+const MONTH_SECONDS = 30 * DAY_SECONDS;
 
 function truncate(s: string): string {
     return s.length > AGENT_LIMITS.MAX_TOOL_RESULT_CHARS
@@ -354,6 +398,31 @@ export async function executeTool(
                 const query = String(args.query ?? "").slice(0, 300);
                 if (!query.trim()) return "No query supplied.";
 
+                // ── Budget checks, before any credit is spent ───────────────
+                if (ctx.searchCount >= SEARCH_LIMITS.PER_TURN) {
+                    return `Already searched ${ctx.searchCount} time(s) this turn, which is the limit. Answer with what you have.`;
+                }
+
+                const userOk = await checkRateLimit(ctx.supabase, "search:user", ctx.userId, {
+                    limit: SEARCH_LIMITS.PER_USER_PER_DAY,
+                    windowSeconds: DAY_SECONDS,
+                });
+                if (!userOk) {
+                    return "This learner has used their web searches for today. Do NOT claim you searched. Answer from your own knowledge and say you couldn't check anything current.";
+                }
+
+                // Shared across everyone — the actual spend ceiling.
+                const globalOk = await checkRateLimit(ctx.supabase, "search:global", "all", {
+                    limit: SEARCH_LIMITS.GLOBAL_PER_MONTH,
+                    windowSeconds: MONTH_SECONDS,
+                });
+                if (!globalOk) {
+                    console.warn("[web-search] global monthly budget exhausted");
+                    return "Web search is unavailable right now. Do NOT claim you searched. Answer from your own knowledge.";
+                }
+
+                ctx.searchCount++;
+
                 const { results, provider, error } = await searchWeb(query);
 
                 if (error === "not_configured") {
@@ -429,15 +498,15 @@ export async function executeTool(
 
                 // File names and sizes only — contents come from
                 // read_project_file, so listing stays cheap in context.
-                const summary = data.map((p: any) => ({
+                const summary = (data as ProjectRow[]).map((p) => ({
                     name: p.name,
                     slug: p.slug,
                     description: p.description,
                     updatedAt: p.updated_at,
                     files: Array.isArray(p.files)
                         ? p.files
-                              .filter((f: any) => f?.type === "file")
-                              .map((f: any) => ({ name: f.name, language: f.language, chars: (f.content ?? "").length }))
+                              .filter((f) => f?.type === "file")
+                              .map((f) => ({ name: f.name, language: f.language, chars: (f.content ?? "").length }))
                         : [],
                 }));
 
@@ -460,8 +529,8 @@ export async function executeTool(
                     return "Could not read that project.";
                 }
 
-                const project = (data ?? []).find(
-                    (p: any) =>
+                const project = ((data ?? []) as ProjectRow[]).find(
+                    (p) =>
                         String(p.slug ?? "").toLowerCase() === projectRef ||
                         String(p.name ?? "").toLowerCase() === projectRef
                 );
@@ -469,17 +538,17 @@ export async function executeTool(
                     return `No project called "${projectRef}". Call list_my_projects for the exact names.`;
                 }
 
-                const files = Array.isArray((project as any).files) ? (project as any).files : [];
+                const files: ProjectFileNode[] = Array.isArray(project.files) ? project.files : [];
                 const file = files.find(
-                    (f: any) => f?.type === "file" && String(f.name ?? "").toLowerCase() === fileName
+                    (f) => f?.type === "file" && String(f.name ?? "").toLowerCase() === fileName
                 );
                 if (!file) {
-                    const available = files.filter((f: any) => f?.type === "file").map((f: any) => f.name);
+                    const available = files.filter((f) => f?.type === "file").map((f) => f.name);
                     return `No file "${fileName}" in that project. Available: ${available.join(", ") || "none"}.`;
                 }
 
                 return truncate(
-                    wrapUntrusted(`project:${(project as any).name}/${file.name}`, String(file.content ?? ""))
+                    wrapUntrusted(`project:${project.name}/${file.name}`, String(file.content ?? ""))
                 );
             }
 

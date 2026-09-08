@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getGroq, GROQ_UNAVAILABLE } from "@/lib/server/groq";
+import { getGroq, GROQ_UNAVAILABLE, GROQ_MODEL } from "@/lib/server/groq";
 import { checkRateLimit } from "@/lib/server/rate-limit";
 import { createClient } from '@/utils/supabase/server';
 
@@ -61,7 +61,7 @@ Rules:
                     content: `Generate a learning roadmap for: ${prompt}`,
                 },
             ],
-            model: 'llama-3.3-70b-versatile',
+            model: GROQ_MODEL,
             temperature: 0.7,
             max_tokens: 2000,
         });

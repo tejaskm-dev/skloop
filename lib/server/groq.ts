@@ -27,3 +27,21 @@ export function getGroq(): Groq | null {
 export const GROQ_UNAVAILABLE = {
     error: "AI features are not configured.",
 } as const;
+
+/**
+ * The chat model every AI route uses.
+ *
+ * This was hardcoded in seven places across six route files, so when Groq
+ * decommissioned `llama-3.3-70b-versatile` the result was model_not_found on
+ * every AI feature simultaneously — and fixing it meant editing six files.
+ *
+ * Overridable via LOOPY_MODEL so a future decommission is an environment
+ * variable rather than a redeploy. Run scripts/list-groq-models.mjs to see what
+ * the account can actually use.
+ */
+export const GROQ_MODEL = process.env.LOOPY_MODEL || "llama-3.1-8b-instant";
+
+/** Standard body for routes reached while the model is rejected. */
+export const GROQ_MODEL_UNAVAILABLE = {
+    error: "The AI model is unavailable. Check LOOPY_MODEL.",
+} as const;

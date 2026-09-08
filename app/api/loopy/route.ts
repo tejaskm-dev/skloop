@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getGroq, GROQ_UNAVAILABLE } from "@/lib/server/groq";
+import { getGroq, GROQ_UNAVAILABLE, GROQ_MODEL } from "@/lib/server/groq";
 import { checkRateLimit } from "@/lib/server/rate-limit";
 import { createClient } from "@/utils/supabase/server";
 import { LOOPY_TOOLS, executeTool, type ToolContext } from "@/lib/server/loopy-tools";
@@ -199,7 +199,7 @@ export async function POST(req: Request) {
                         messages: messages as Parameters<
                             typeof groqClient.chat.completions.create
                         >[0]["messages"],
-                        model: "llama-3.3-70b-versatile",
+                        model: GROQ_MODEL,
                         temperature: 0.5,
                         max_tokens: 2000,
                         tools: LOOPY_TOOLS as unknown as Parameters<

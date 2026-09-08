@@ -574,7 +574,33 @@ export async function executeTool(
  * always fails wastes a model round-trip and invites the model to claim it
  * searched when nothing happened.
  */
-export function getLoopyTools() {
+export function getLoopyTools(enabled?: string[]) {
     const searchReady = isSearchConfigured();
-    return LOOPY_TOOLS.filter((t) => searchReady || t.function.name !== "search_web");
+
+    return LOOPY_TOOLS.filter((t) => {
+        const name = t.function.name;
+
+        // Never advertise search without a provider configured.
+        if (name === "search_web" && !searchReady) return false;
+
+        // When the user has picked specific tools, honour that. create_artifact
+        // is always available: it is how substantial answers are presented, not
+        // a capability the user opts into.
+        if (enabled && enabled.length > 0) {
+            return name === "create_artifact" || enabled.includes(name);
+        }
+
+        return true;
+    });
 }
+
+/** Tool names a client may enable. Anything else is ignored. */
+export const SELECTABLE_TOOLS = [
+    "search_web",
+    "search_curriculum",
+    "get_my_progress",
+    "calculate",
+    "list_my_projects",
+    "read_project_file",
+    "app_help",
+] as const;

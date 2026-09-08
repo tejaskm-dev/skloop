@@ -2,12 +2,38 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Sparkles, Zap, Plus, Code2, Globe, ArrowUp } from "lucide-react";
+import { Sparkles, Zap, Globe, BookOpen, Calculator, FolderOpen, ArrowUp } from "lucide-react";
 import { LoopyMascot } from "@/components/loopy/LoopyMascot";
 import { LoopyResponseRenderer } from "@/components/loopy/LoopyResponseRenderer";
 import { ArtifactPanel, ArtifactChip, type LoopyArtifact } from "@/components/loopy/ArtifactPanel";
 import { ThinkingPanel, SourceList, type ToolStep, type Source } from "@/components/loopy/ThinkingPanel";
 
+
+/**
+ * Tools a user can pin for a message. Selecting none — the default — lets the
+ * agent choose. create_artifact is deliberately absent: it's how substantial
+ * answers get presented, not a capability to opt into.
+ */
+const TOOL_CHOICES = [
+    { id: "search_web", label: "Web", Icon: Globe },
+    { id: "search_curriculum", label: "Lessons", Icon: BookOpen },
+    { id: "calculate", label: "Calc", Icon: Calculator },
+    { id: "list_my_projects", label: "My code", Icon: FolderOpen },
+] as const;
+
+type LoopyMood =
+    | "happy" | "surprised" | "annoyed" | "thinking" | "celebrating"
+    | "screaming" | "huddled" | "awakened" | "warrior";
+
+/** Events the agent streams back, newline-delimited. */
+type StreamEvent =
+    | { type: "delta"; text: string }
+    | { type: "replace"; text: string }
+    | { type: "tool"; name: string; status: "running" | "done"; args?: string; ms?: number }
+    | { type: "sources"; sources: Source[] }
+    | { type: "artifact"; artifact: LoopyArtifact }
+    | { type: "done"; mood?: string; conversationId?: string }
+    | { type: "error"; message: string };
 
 type Message = {
     id: string;
@@ -30,6 +56,10 @@ export default function LoopyChatPage({ params }: { params: Promise<{ id: string
     const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState("");
     const [isLoading, setIsLoading] = useState(false);
+    const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+    // Tools the user has explicitly enabled. Empty means "let Loopy decide",
+    // which is the default and the usual case.
+    const [enabledTools, setEnabledTools] = useState<string[]>([]);
     const [artifacts, setArtifacts] = useState<LoopyArtifact[]>([]);
     const [activeArtifact, setActiveArtifact] = useState<string | null>(null);
     const [panelOpen, setPanelOpen] = useState(false);
@@ -38,51 +68,46 @@ export default function LoopyChatPage({ params }: { params: Promise<{ id: string
     const scrollRef = useRef<HTMLDivElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-    // Initial load from local storage
+    // Load the conversation from the server.
+    //
+    // This page used to keep its own localStorage copy (loopy_chat_<id> plus a
+    // loopy_chats_list index) while the sidebar and the API had moved to
+    // Postgres. The two disagreed: starting a chat rewrote the URL to a
+    // timestamp id while the server created a UUID conversation, so clicking
+    // anything in the sidebar loaded an empty localStorage key. The server is
+    // the single source of truth now.
     useEffect(() => {
-        if (chatId !== "new") {
-            try {
-                const saved = localStorage.getItem(`loopy_chat_${chatId}`);
-                if (saved) setMessages(JSON.parse(saved));
-            } catch (e) {
-                console.error("Failed to load chat", e);
-            }
+        if (chatId === "new") {
+            setMessages([]);
+            conversationIdRef.current = null;
+            return;
         }
-    }, [chatId]);
 
-    // Save to local storage on message changes and update sidebar title
-    useEffect(() => {
-        if (chatId === "new" || messages.length === 0) return;
-        
-        try {
-            localStorage.setItem(`loopy_chat_${chatId}`, JSON.stringify(messages));
-            
-            // Generate title from first user message
-            const firstUserMsg = messages.find(m => m.role === "user");
-            if (firstUserMsg) {
-                let title = firstUserMsg.content.slice(0, 22).replace(/\n/g, ' ').trim();
-                title += firstUserMsg.content.length > 22 ? "..." : "";
-                
-                const savedList = localStorage.getItem("loopy_chats_list");
-                let chatList = savedList ? JSON.parse(savedList) : [];
-                
-                const existingIndex = chatList.findIndex((c: any) => c.id === chatId);
-                if (existingIndex !== -1) {
-                    if (chatList[existingIndex].title === "Untitled Chat") {
-                        chatList[existingIndex].title = title;
-                        localStorage.setItem("loopy_chats_list", JSON.stringify(chatList));
-                        window.dispatchEvent(new Event("loopy_chats_updated"));
-                    }
-                } else {
-                    chatList = [{ id: chatId, title }, ...chatList];
-                    localStorage.setItem("loopy_chats_list", JSON.stringify(chatList));
-                    window.dispatchEvent(new Event("loopy_chats_updated"));
-                }
+        conversationIdRef.current = chatId;
+        let cancelled = false;
+
+        (async () => {
+            setIsLoadingHistory(true);
+            try {
+                const { getConversation } = await import("@/actions/loopy-actions");
+                const rows = await getConversation(chatId);
+                if (cancelled || !rows) return;
+
+                setMessages(
+                    rows.map((r) => ({
+                        id: r.id,
+                        role: r.role === "user" ? "user" : "assistant",
+                        content: r.content ?? "",
+                        mood: r.mood ?? undefined,
+                    }))
+                );
+            } finally {
+                if (!cancelled) setIsLoadingHistory(false);
             }
-        } catch (e) {
-            console.error("Failed to save chat or update list", e);
-        }
-    }, [messages, chatId]);
+        })();
+
+        return () => { cancelled = true; };
+    }, [chatId]);
 
     useEffect(() => {
         if (scrollRef.current) {
@@ -102,27 +127,11 @@ export default function LoopyChatPage({ params }: { params: Promise<{ id: string
 
     const handleSend = async () => {
         if (!input.trim() || isLoading) return;
-        
-        // If this is a brand-new chat (URL is /chat/new), generate a real ID and
-        // update the URL + sidebar BEFORE sending so the chat gets persisted properly.
-        let activeChatId = chatId;
-        if (chatId === "new") {
-            const newId = Date.now().toString();
-            activeChatId = newId;
-            setChatId(newId);
-            // Register in sidebar immediately
-            try {
-                const title = input.slice(0, 22).replace(/\n/g, ' ').trim() + (input.length > 22 ? "..." : "");
-                const savedList = localStorage.getItem("loopy_chats_list");
-                const chatList = savedList ? JSON.parse(savedList) : [];
-                const updated = [{ id: newId, title }, ...chatList];
-                localStorage.setItem("loopy_chats_list", JSON.stringify(updated));
-                window.dispatchEvent(new Event("loopy_chats_updated"));
-            } catch (e) {}
-            // Update URL silently without triggering a Next.js navigation/remount
-            window.history.replaceState(null, '', `/loopy/chat/${activeChatId}`);
-        }
-        
+
+        // No id is invented here. The server creates the conversation and
+        // returns its real id on the `done` event, at which point the URL is
+        // updated to match.
+
         const userMsg: Message = { id: Date.now().toString(), role: "user", content: input };
         setMessages(prev => [...prev, userMsg]);
         setInput("");
@@ -152,6 +161,7 @@ export default function LoopyChatPage({ params }: { params: Promise<{ id: string
                 body: JSON.stringify({
                     message: input,
                     conversationId: conversationIdRef.current,
+                    tools: enabledTools,
                     history: messages.map(m => ({ role: m.role, content: m.content })),
                 }),
             });
@@ -175,7 +185,7 @@ export default function LoopyChatPage({ params }: { params: Promise<{ id: string
                 for (const line of lines) {
                     if (!line.trim()) continue;
 
-                    let evt: any;
+                    let evt: StreamEvent;
                     try { evt = JSON.parse(line); } catch { continue; }
 
                     switch (evt.type) {
@@ -233,7 +243,16 @@ export default function LoopyChatPage({ params }: { params: Promise<{ id: string
                         }
 
                         case "done":
-                            if (evt.conversationId) conversationIdRef.current = evt.conversationId;
+                            if (evt.conversationId) {
+                                conversationIdRef.current = evt.conversationId;
+                                // Adopt the server's id so a reload or a sidebar
+                                // click reaches the same conversation.
+                                if (chatId === "new" || chatId !== evt.conversationId) {
+                                    setChatId(evt.conversationId);
+                                    window.history.replaceState(null, "", `/loopy/chat/${evt.conversationId}`);
+                                }
+                                window.dispatchEvent(new Event("loopy_chats_updated"));
+                            }
                             patchAssistant(m => ({
                                 ...m,
                                 mood: evt.mood || "happy",
@@ -320,7 +339,18 @@ export default function LoopyChatPage({ params }: { params: Promise<{ id: string
             {/* Messages Area */}
             <div ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-hidden bg-[#FAFAF8] px-4 py-8 no-scrollbar md:px-6">
                 
-                {isNew && !isLoading && (
+                {isLoadingHistory && (
+                    <div className="mx-auto max-w-3xl space-y-7" aria-busy="true">
+                        {[...Array(3)].map((_, i) => (
+                            <div key={i} className="flex gap-3">
+                                <div className="h-10 w-10 shrink-0 animate-pulse rounded-full bg-zinc-200" />
+                                <div className="h-16 flex-1 animate-pulse rounded-3xl bg-zinc-100" />
+                            </div>
+                        ))}
+                    </div>
+                )}
+
+                {isNew && !isLoading && !isLoadingHistory && (
                     <div className="h-full flex flex-col items-center justify-center text-center">
                         <motion.div 
                             initial={{ scale: 0.8, opacity: 0 }}
@@ -349,7 +379,7 @@ export default function LoopyChatPage({ params }: { params: Promise<{ id: string
                                     {msg.role === "assistant" ? (
                                         <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-white ring-2 ring-zinc-200">
                                             <div className="scale-[1.5] translate-y-[3px]">
-                                                <LoopyMascot size={40} mood={(msg.mood as any) || "happy"} />
+                                                <LoopyMascot size={40} mood={(msg.mood as LoopyMood) ?? "happy"} />
                                             </div>
                                         </div>
                                     ) : (
@@ -445,30 +475,43 @@ export default function LoopyChatPage({ params }: { params: Promise<{ id: string
                         />
 
                         <div className="flex items-center gap-2 px-3 pb-3">
-                            {/* Quick prompts. These only shape the message — the
-                                agent decides which tools to actually use. */}
-                            <button
-                                type="button"
-                                onClick={() => setInput((v) => v || "Review this code:\n\n")}
-                                aria-label="Insert a code prompt"
-                                className="flex h-9 w-9 items-center justify-center rounded-full border border-zinc-200 text-zinc-500 transition-colors hover:bg-zinc-50 hover:text-zinc-900"
-                            >
-                                <Plus size={16} strokeWidth={2.5} />
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => setInput((v) => v || "Explain this code:\n\n```\n\n```")}
-                                className="flex h-9 items-center gap-1.5 rounded-full border border-zinc-200 px-3 text-xs font-bold text-zinc-600 transition-colors hover:bg-zinc-50 hover:text-zinc-900"
-                            >
-                                <Code2 size={14} strokeWidth={2.5} /> Code
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => setInput((v) => v || "Search the web for ")}
-                                className="flex h-9 items-center gap-1.5 rounded-full border border-zinc-200 px-3 text-xs font-bold text-zinc-600 transition-colors hover:bg-zinc-50 hover:text-zinc-900"
-                            >
-                                <Globe size={14} strokeWidth={2.5} /> Web
-                            </button>
+                            {/* Real tool selection. These constrain which tools
+                                the agent is offered for this message — they are
+                                sent to the server, not pasted into the prompt.
+                                None selected means Loopy chooses freely. */}
+                            {TOOL_CHOICES.map(({ id, label, Icon }) => {
+                                const on = enabledTools.includes(id);
+                                return (
+                                    <button
+                                        key={id}
+                                        type="button"
+                                        aria-pressed={on}
+                                        title={on ? `${label}: only these tools will be used` : `Restrict Loopy to ${label}`}
+                                        onClick={() =>
+                                            setEnabledTools((prev) =>
+                                                prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]
+                                            )
+                                        }
+                                        className={`flex h-9 items-center gap-1.5 rounded-full border px-3 text-xs font-bold transition-colors ${
+                                            on
+                                                ? "border-[#b5db3b] bg-[#EAF7C9] text-[#3f5406]"
+                                                : "border-zinc-200 text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+                                        }`}
+                                    >
+                                        <Icon size={14} strokeWidth={2.5} /> {label}
+                                    </button>
+                                );
+                            })}
+
+                            {enabledTools.length > 0 && (
+                                <button
+                                    type="button"
+                                    onClick={() => setEnabledTools([])}
+                                    className="text-[11px] font-bold text-zinc-400 underline underline-offset-2 hover:text-zinc-600"
+                                >
+                                    clear
+                                </button>
+                            )}
 
                             <button
                                 type="submit"

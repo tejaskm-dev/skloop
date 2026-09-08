@@ -2,10 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import {
-    MessageSquare, Plus, Compass, Route, Trophy, Settings,
-    Search, MoreHorizontal, Trash2, PanelLeft,
-} from "lucide-react";
+import { MessageSquare, Plus, Search, MoreHorizontal, Trash2, PanelLeft } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import useSWR from "swr";
@@ -19,16 +16,11 @@ import type { LoopyConversationSummary } from "@/actions/loopy-actions";
  * of `{id, title}`, so entries carry a real preview line and timestamp and
  * survive a device change.
  *
- * Nav destinations are existing routes only — Learning Paths is the roadmap,
- * Achievements is the profile. Nothing here links somewhere that doesn't exist.
+ * Deliberately just conversations: the nav links, the ⌘K binding and the XP
+ * card were removed on request. A shortcut badge that isn't wired, or a stat
+ * card duplicating the profile, is chrome that has to be maintained without
+ * earning its place.
  */
-
-const NAV = [
-    { label: "Explore Prompts", href: "/loopy", Icon: Compass },
-    { label: "Learning Paths", href: "/roadmap", Icon: Route },
-    { label: "Achievements", href: "/profile", Icon: Trophy },
-    { label: "Settings", href: "/settings/ai", Icon: Settings },
-];
 
 function timeAgo(iso: string): string {
     const secs = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
@@ -50,7 +42,7 @@ const fetchConversations = async () => {
 export function ChatSidebar() {
     const pathname = usePathname();
     const router = useRouter();
-    const { user, profile } = useUser();
+    const { user } = useUser();
 
     const [collapsed, setCollapsed] = useState(false);
     const [query, setQuery] = useState("");
@@ -79,18 +71,6 @@ export function ChatSidebar() {
         router.push("/loopy/chat/new");
     }, [router]);
 
-    // ⌘K / Ctrl+K starts a new chat, matching the affordance shown on the button.
-    useEffect(() => {
-        const onKey = (e: KeyboardEvent) => {
-            if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-                e.preventDefault();
-                newChat();
-            }
-        };
-        window.addEventListener("keydown", onKey);
-        return () => window.removeEventListener("keydown", onKey);
-    }, [newChat]);
-
     const remove = async (id: string) => {
         setMenuFor(null);
         mutate(conversations.filter((c) => c.id !== id), { revalidate: false });
@@ -107,10 +87,6 @@ export function ChatSidebar() {
                   (c.preview ?? "").toLowerCase().includes(query.toLowerCase())
           )
         : conversations;
-
-    const level = profile?.level ?? 1;
-    const xp = profile?.xp ?? 0;
-    const xpIntoLevel = xp % 500;
 
     if (collapsed) {
         return (
@@ -168,25 +144,8 @@ export function ChatSidebar() {
                 >
                     <Plus size={16} strokeWidth={3} />
                     New Chat
-                    <kbd className="ml-auto rounded bg-white/15 px-1.5 py-0.5 font-mono text-[10px] font-bold">
-                        ⌘K
-                    </kbd>
                 </button>
             </div>
-
-            {/* Nav */}
-            <nav className="px-3 py-2">
-                {NAV.map(({ label, href, Icon }) => (
-                    <Link
-                        key={href}
-                        href={href}
-                        className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-bold text-zinc-600 transition-colors hover:bg-zinc-100 hover:text-zinc-900"
-                    >
-                        <Icon size={16} strokeWidth={2.5} className="text-zinc-400" />
-                        {label}
-                    </Link>
-                ))}
-            </nav>
 
             {/* Recent */}
             <div className="flex min-h-0 flex-1 flex-col px-3 pt-2">
@@ -276,31 +235,6 @@ export function ChatSidebar() {
                 </ul>
             </div>
 
-            {/* Level */}
-            <div className="space-y-2 border-t border-zinc-100 p-3">
-                <div className="flex items-center gap-3 rounded-2xl bg-zinc-50 px-3 py-2.5">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#D4F268] text-lg">
-                        🐸
-                    </div>
-                    <div className="min-w-0 flex-1">
-                        <p className="text-xs font-black text-zinc-900">Level {level}</p>
-                        <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-zinc-200">
-                            <div
-                                className="h-full rounded-full bg-[#a3d417] transition-all"
-                                style={{ width: `${Math.min(100, (xpIntoLevel / 500) * 100)}%` }}
-                            />
-                        </div>
-                        <p className="mt-1 text-[10px] font-bold text-zinc-400">{xpIntoLevel} / 500 XP</p>
-                    </div>
-                </div>
-
-                <div className="rounded-2xl bg-[#F4FBE4] px-3 py-2.5">
-                    <p className="text-[11px] font-black text-zinc-900">Keep going!</p>
-                    <p className="text-[10px] font-medium leading-snug text-zinc-500">
-                        Great questions lead to greater developers.
-                    </p>
-                </div>
-            </div>
         </aside>
     );
 }

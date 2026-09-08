@@ -251,6 +251,40 @@ interface ProjectRow {
 const DAY_SECONDS = 86_400;
 const MONTH_SECONDS = 30 * DAY_SECONDS;
 
+/**
+ * Infers the artifact kind from its content.
+ *
+ * Models routinely pick the wrong `kind` — a mermaid diagram declared as
+ * "markdown" renders as raw `graph TD;` source instead of a diagram, which is
+ * exactly the failure a learner notices. The content is unambiguous, so trust
+ * it over the label.
+ *
+ * Returns the declared kind when the content doesn't clearly indicate otherwise.
+ */
+function inferArtifactKind(declared: string, content: string): string {
+    const head = content.trimStart().slice(0, 400).toLowerCase();
+
+    // Mermaid diagram types.
+    if (/^(graph\s|flowchart\s|sequencediagram|classdiagram|statediagram|erdiagram|journey|gantt|pie\s|mindmap|timeline|gitgraph)/.test(head)) {
+        return "mermaid";
+    }
+
+    // A fenced mermaid block inside "markdown" is the same mistake, one level in.
+    if (/^```mermaid/.test(head)) return "mermaid";
+
+    if (head.startsWith("<!doctype html") || head.startsWith("<html")) return "html";
+    if (head.startsWith("<svg")) return "svg";
+
+    return declared;
+}
+
+/** Strips a wrapping code fence, which models often add around diagram source. */
+function unfence(content: string, language: string): string {
+    const fence = new RegExp(`^\\s*\`\`\`${language}?\\s*\\n([\\s\\S]*?)\\n?\`\`\`\\s*$`, "i");
+    const m = content.match(fence);
+    return m ? m[1] : content;
+}
+
 function truncate(s: string): string {
     return s.length > AGENT_LIMITS.MAX_TOOL_RESULT_CHARS
         ? s.slice(0, AGENT_LIMITS.MAX_TOOL_RESULT_CHARS) + "\n…(truncated)"
@@ -347,10 +381,18 @@ export async function executeTool(
             // ── Artifacts ───────────────────────────────────────────────────
             case "create_artifact": {
                 const slug = String(args.slug ?? "").toLowerCase().replace(/[^a-z0-9-]/g, "-").slice(0, 60);
-                const kind = String(args.kind ?? "code");
                 const title = String(args.title ?? "Untitled").slice(0, 120);
                 const language = args.language ? String(args.language).slice(0, 40) : null;
-                const content = String(args.content ?? "");
+
+                let content = String(args.content ?? "");
+                const declaredKind = String(args.kind ?? "code");
+
+                // Correct the two mistakes models make most: mislabelling the
+                // kind, and wrapping the body in a code fence.
+                const kind = inferArtifactKind(declaredKind, content);
+                if (kind === "mermaid") content = unfence(content, "mermaid");
+                if (kind === "html") content = unfence(content, "html");
+                if (kind === "svg") content = unfence(content, "svg");
 
                 if (!slug) return "create_artifact needs a slug.";
                 if (!content.trim()) return "create_artifact needs content.";
@@ -389,7 +431,12 @@ export async function executeTool(
 
                 // The body is deliberately not echoed back — the model just
                 // wrote it, and replaying it burns context for nothing.
-                return `Artifact "${title}" saved as ${slug} (version ${result.version}). It is now visible in the side panel. Do not repeat its contents in your reply — refer to it instead.`;
+                const corrected =
+                    kind !== declaredKind
+                        ? ` NOTE: you declared kind="${declaredKind}" but the content is ${kind}, so it was saved as ${kind}. Use kind="${kind}" for this sort of content.`
+                        : "";
+
+                return `Artifact "${title}" saved as ${slug} (version ${result.version}). It is now visible in the side panel. Do not repeat its contents in your reply — refer to it instead.${corrected}`;
             }
 
 

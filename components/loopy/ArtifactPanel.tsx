@@ -4,6 +4,7 @@ import { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Copy, Check, Code2, FileText, Image as ImageIcon, GitBranch, Play, Link2 } from "lucide-react";
 import { SourceList, type Source } from "./ThinkingPanel";
+import { MermaidDiagram } from "./MermaidDiagram";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -183,12 +184,7 @@ function ArtifactBody({ artifact }: { artifact: LoopyArtifact }) {
             return <SandboxedPreview artifact={artifact} />;
 
         case "mermaid":
-            // Rendered as a fenced block; the chat renderer picks up mermaid.
-            return (
-                <pre className="whitespace-pre-wrap break-words p-5 font-mono text-[13px] leading-relaxed text-zinc-800">
-                    {artifact.content}
-                </pre>
-            );
+            return <MermaidDiagram code={artifact.content} id={artifact.slug} />;
 
         case "markdown":
             return (

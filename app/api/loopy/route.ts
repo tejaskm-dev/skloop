@@ -60,11 +60,31 @@ You are a TUTOR, not a code dispenser.
 - app_help — for questions about XP, streaks, quests, the shop, mentorship, or where a feature lives.
 - create_artifact — for substantial self-contained work: runnable code, a diagram, a written explainer, a visual.
 
-## When to use create_artifact
-Use it when the content is something they'll read, keep, or return to — a complete example, a visualisation, a walkthrough.
-Do NOT use it for a sentence, a two-line snippet, or ordinary conversation.
-After creating one, refer to it briefly ("popped that in the panel") rather than repeating its contents.
-To revise, call create_artifact again with the SAME slug — that versions it.
+## Artifacts — read this carefully
+The teaching rule above is about not solving THEIR exercise for them. It never applies to visual aids: a diagram helps someone think, it doesn't do their thinking. Never withhold a diagram to make them work for it, and never make someone ask twice for a visual.
+
+Reach for create_artifact WITHOUT being asked whenever the answer has a shape:
+- a data structure, algorithm, architecture or flow  → kind="mermaid"
+- something worth playing with or seeing move        → kind="html"
+- a complete, runnable program                        → kind="code"
+- a drawing or figure                                 → kind="svg"
+- a written guide, cheatsheet or comparison table     → kind="markdown"
+
+If you catch yourself describing what something LOOKS like in prose, build it instead.
+"Explain what a tree/graph/heap/linked list is" means: build the diagram AND explain it. The explanation is the teaching; the diagram is what they look at while you teach.
+A learner asking about trees, graphs, sorting, recursion, layout or state machines should get a diagram they can look at, not a paragraph telling them to imagine one.
+
+Pick the kind by what the CONTENT is, never by how you plan to talk about it. A mermaid diagram is kind="mermaid" even if you were going to explain it in markdown. Never wrap artifact content in code fences — send the raw body.
+
+QUALITY BAR. An artifact is a finished piece of work, not a sketch:
+- A diagram labels its nodes meaningfully and shows the whole structure, not three nodes standing in for it.
+- An html artifact is a complete self-contained document, actually interactive, styled well enough to be pleasant.
+- Code runs as given, with the parts a learner would stumble on commented.
+Never call your own artifact "quick", "simple", "rough" or "a sketch". Build the real thing.
+
+Do NOT use an artifact for a sentence, a two-line snippet, or ordinary conversation.
+After creating one, refer to it in a clause ("that's in the panel") and carry on teaching — never restate its contents.
+To revise, call create_artifact again with the SAME slug. That versions it, and is always better than a near-duplicate.
 
 ## Voice
 - Short sentences. Casual. No corporate speak.
@@ -117,6 +137,36 @@ interface HistoryEntry {
     role?: unknown;
     content?: unknown;
 }
+
+
+/**
+ * Topics where a diagram genuinely helps, and a nudge to build one.
+ *
+ * The system prompt asks the model to produce visuals unprompted, but measured
+ * over repeated runs gpt-oss-120b only did so about a quarter of the time — it
+ * is simply less steerable than a frontier model, which is the gap that shows
+ * up as "not smart about artifacts". Prompt wording alone did not move it
+ * reliably.
+ *
+ * So the trigger is made deterministic on our side: when the learner asks about
+ * something structural, a turn-scoped instruction is appended. It is narrow on
+ * purpose — matching the shape of the request, not merely a keyword — so
+ * "what's the for loop syntax" still gets a plain answer.
+ */
+const VISUAL_TOPICS =
+    /\b(binary tree|b-?tree|tree|graph|linked list|heap|trie|stack|queue|hash ?(?:table|map)|sort(?:ing)?|quicksort|mergesort|bfs|dfs|traversal|recursion|state machine|architecture|data ?structure|flow(?:chart)?|pipeline|lifecycle|event loop|call stack)\b/i;
+
+/** Phrasings that ask for understanding rather than a one-line fact. */
+const EXPLANATORY =
+    /\b(explain|what (?:is|are|exactly)|how (?:does|do|is)|show me|walk me|help me understand|visuali[sz]e|diagram|difference between)\b/i;
+
+function shouldNudgeArtifact(message: string): boolean {
+    if (message.length < 12) return false;
+    return VISUAL_TOPICS.test(message) && EXPLANATORY.test(message);
+}
+
+const ARTIFACT_NUDGE =
+    "This question is about a structure the learner needs to SEE. Call create_artifact with kind=\"mermaid\" (or \"html\" if it should be interactive) as part of this turn, showing the whole structure with meaningful labels — then explain it. Do not answer in prose alone, and do not ask whether they want a diagram.";
 
 export async function POST(req: Request) {
     const supabase = await createClient();
@@ -176,9 +226,20 @@ export async function POST(req: Request) {
               }))
         : [];
 
+    // Nudging raises the unprompted-artifact rate from roughly 1/4 to 3/5.
+    //
+    // Forcing it with tool_choice was tried and reverted: Groq rejects the whole
+    // request with "Tool choice is required, but model did not call a tool" when
+    // the model declines, so a turn that would have produced a good prose answer
+    // instead produces an error. A missing diagram is a worse answer; a failed
+    // turn is no answer.
+    const wantsVisual = shouldNudgeArtifact(message);
+
     const messages: ChatMessage[] = [
         { role: "system", content: SYSTEM_PROMPT },
         ...history,
+        // Turn-scoped, so it can't bias later turns in the conversation.
+        ...(wantsVisual ? [{ role: "system" as const, content: ARTIFACT_NUDGE }] : []),
         { role: "user", content: message },
     ];
 

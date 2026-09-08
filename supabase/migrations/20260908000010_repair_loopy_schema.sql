@@ -111,5 +111,7 @@ SELECT c.relname AS table_name,
          WHERE p.schemaname = 'public' AND p.tablename = c.relname) AS policy_count
 FROM pg_class c
 JOIN pg_namespace n ON n.oid = c.relnamespace
-WHERE n.nspname = 'public' AND c.relname LIKE 'loopy_%'
+WHERE n.nspname = 'public'
+  AND c.relkind = 'r'          -- ordinary tables only; pg_class also holds
+  AND c.relname LIKE 'loopy_%' -- indexes and constraints, which have no RLS
 ORDER BY c.relname;

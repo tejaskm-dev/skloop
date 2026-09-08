@@ -13,6 +13,8 @@
 -- the user whose id is on it.
 -- ============================================================================
 
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 -- ── Conversations ───────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.loopy_conversations (
     id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -22,8 +24,6 @@ CREATE TABLE IF NOT EXISTS public.loopy_conversations (
     updated_at  timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_loopy_convos_user_updated
-    ON public.loopy_conversations (user_id, updated_at DESC);
 
 -- ── Messages ────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.loopy_messages (
@@ -39,8 +39,6 @@ CREATE TABLE IF NOT EXISTS public.loopy_messages (
     created_at      timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_loopy_messages_convo
-    ON public.loopy_messages (conversation_id, created_at);
 
 -- ── Artifacts ───────────────────────────────────────────────────────────────
 -- current_version is denormalised so the panel can render without a join.
@@ -61,8 +59,6 @@ CREATE TABLE IF NOT EXISTS public.loopy_artifacts (
     UNIQUE (conversation_id, slug)
 );
 
-CREATE INDEX IF NOT EXISTS idx_loopy_artifacts_user
-    ON public.loopy_artifacts (user_id, updated_at DESC);
 
 -- ── Artifact versions ───────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.loopy_artifact_versions (
@@ -75,8 +71,57 @@ CREATE TABLE IF NOT EXISTS public.loopy_artifact_versions (
     UNIQUE (artifact_id, version)
 );
 
-CREATE INDEX IF NOT EXISTS idx_loopy_versions_artifact
-    ON public.loopy_artifact_versions (artifact_id, version DESC);
+
+
+-- ── Indexes ─────────────────────────────────────────────────────────────────
+-- Guarded the same way as migration 006. If a CREATE TABLE above was skipped
+-- because the table already existed in a different shape, an unguarded
+-- CREATE INDEX here would fail with a bare "column does not exist" and abort
+-- the whole migration — which is precisely what happened on the first run.
+DO $$
+DECLARE
+    specs text[][] := ARRAY[
+        ARRAY['idx_loopy_convos_user_updated', 'loopy_conversations', 'user_id,updated_at',
+              'CREATE INDEX IF NOT EXISTS idx_loopy_convos_user_updated ON public.loopy_conversations (user_id, updated_at DESC)'],
+        ARRAY['idx_loopy_messages_convo', 'loopy_messages', 'conversation_id,created_at',
+              'CREATE INDEX IF NOT EXISTS idx_loopy_messages_convo ON public.loopy_messages (conversation_id, created_at)'],
+        ARRAY['idx_loopy_artifacts_user', 'loopy_artifacts', 'user_id,updated_at',
+              'CREATE INDEX IF NOT EXISTS idx_loopy_artifacts_user ON public.loopy_artifacts (user_id, updated_at DESC)'],
+        ARRAY['idx_loopy_versions_artifact', 'loopy_artifact_versions', 'artifact_id,version',
+              'CREATE INDEX IF NOT EXISTS idx_loopy_versions_artifact ON public.loopy_artifact_versions (artifact_id, version DESC)']
+    ];
+    spec text[]; idx_name text; tbl text; cols text[]; ddl text; col text;
+    missing text[];
+BEGIN
+    FOREACH spec SLICE 1 IN ARRAY specs LOOP
+        idx_name := spec[1]; tbl := spec[2];
+        cols := string_to_array(spec[3], ','); ddl := spec[4];
+        missing := ARRAY[]::text[];
+
+        IF to_regclass('public.' || tbl) IS NULL THEN
+            RAISE NOTICE 'SKIP % — table public.% does not exist', idx_name, tbl;
+            CONTINUE;
+        END IF;
+
+        FOREACH col IN ARRAY cols LOOP
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.columns
+                 WHERE table_schema='public' AND table_name=tbl AND column_name=col
+            ) THEN missing := missing || col; END IF;
+        END LOOP;
+
+        IF array_length(missing, 1) > 0 THEN
+            RAISE NOTICE 'SKIP % — public.% missing: %', idx_name, tbl, array_to_string(missing, ', ');
+            CONTINUE;
+        END IF;
+
+        BEGIN
+            EXECUTE ddl;
+        EXCEPTION WHEN others THEN
+            RAISE NOTICE 'SKIP % — %', idx_name, SQLERRM;
+        END;
+    END LOOP;
+END $$;
 
 -- ── RLS: strictly owner-scoped ──────────────────────────────────────────────
 ALTER TABLE public.loopy_conversations      ENABLE ROW LEVEL SECURITY;

@@ -290,7 +290,11 @@ export async function fetchUserTimeline(userId: string) {
         .from("user_timeline")
         .select("*")
         .eq("user_id", userId)
-        .order("event_date", { ascending: false });
+        .order("event_date", { ascending: false })
+        // Grows by a row per chest opened, project added, milestone hit —
+        // unbounded over an account's lifetime. The profile renders a recent
+        // slice, so there is no reason to pull the whole history.
+        .limit(100);
 
     if (error) throw error;
     return data || [];

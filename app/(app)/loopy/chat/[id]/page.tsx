@@ -5,13 +5,25 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Send, Terminal, Sparkles } from "lucide-react";
 import { LoopyMascot } from "@/components/loopy/LoopyMascot";
 import { LoopyResponseRenderer } from "@/components/loopy/LoopyResponseRenderer";
+import { ArtifactPanel, ArtifactChip, type LoopyArtifact } from "@/components/loopy/ArtifactPanel";
 
+
+const TOOL_LABELS: Record<string, string> = {
+    search_curriculum: "Searching Skloop lessons",
+    get_my_progress: "Checking your progress",
+    create_artifact: "Building that out",
+    app_help: "Looking that up",
+};
 
 type Message = {
     id: string;
     role: "user" | "assistant" | "system";
     content: string;
     mood?: string;
+    /** Slugs of artifacts produced on this turn, shown as chips in the transcript. */
+    artifactSlugs?: string[];
+    /** Tool the agent is currently running, surfaced while streaming. */
+    activeTool?: string | null;
 };
 
 export default function LoopyChatPage({ params }: { params: Promise<{ id: string }> }) {
@@ -22,6 +34,11 @@ export default function LoopyChatPage({ params }: { params: Promise<{ id: string
     const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState("");
     const [isLoading, setIsLoading] = useState(false);
+    const [artifacts, setArtifacts] = useState<LoopyArtifact[]>([]);
+    const [activeArtifact, setActiveArtifact] = useState<string | null>(null);
+    const [panelOpen, setPanelOpen] = useState(false);
+    // Server-side conversation id; distinct from the local route id.
+    const conversationIdRef = useRef<string | null>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -115,34 +132,110 @@ export default function LoopyChatPage({ params }: { params: Promise<{ id: string
         setInput("");
         setIsLoading(true);
 
+        // The assistant bubble is created up front and filled in as the stream
+        // arrives, so text appears token by token instead of after a long wait.
+        const assistantId = (Date.now() + 1).toString();
+        setMessages(prev => [...prev, {
+            id: assistantId,
+            role: "assistant",
+            content: "",
+            mood: "thinking",
+            artifactSlugs: [],
+            activeTool: null,
+        }]);
+
+        const patchAssistant = (fn: (m: Message) => Message) => {
+            setMessages(prev => prev.map(m => (m.id === assistantId ? fn(m) : m)));
+        };
+
         try {
-            // Using the new dedicated endpoint
             const res = await fetch("/api/loopy", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ 
-                    message: input, 
-                    history: messages.map(m => ({ role: m.role, content: m.content })) 
-                })
+                body: JSON.stringify({
+                    message: input,
+                    conversationId: conversationIdRef.current,
+                    history: messages.map(m => ({ role: m.role, content: m.content })),
+                }),
             });
-            
-            if (!res.ok) throw new Error("API failed");
-            const data = await res.json();
-            
-            setMessages(prev => [...prev, {
-                id: (Date.now() + 1).toString(),
-                role: "assistant",
-                content: data.content || "Oops, I encountered a glitch in the syntax!",
-                mood: data.mood || "thinking"
-            }]);
+
+            if (!res.ok || !res.body) throw new Error("API failed");
+
+            // Newline-delimited JSON. A chunk can split an event, so the tail is
+            // carried over until its newline arrives.
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = "";
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split("\n");
+                buffer = lines.pop() ?? "";
+
+                for (const line of lines) {
+                    if (!line.trim()) continue;
+
+                    let evt: any;
+                    try { evt = JSON.parse(line); } catch { continue; }
+
+                    switch (evt.type) {
+                        case "delta":
+                            patchAssistant(m => ({ ...m, content: m.content + evt.text }));
+                            break;
+
+                        case "replace":
+                            patchAssistant(m => ({ ...m, content: evt.text }));
+                            break;
+
+                        case "tool":
+                            patchAssistant(m => ({
+                                ...m,
+                                activeTool: evt.status === "running" ? evt.name : null,
+                            }));
+                            break;
+
+                        case "artifact": {
+                            const a = evt.artifact as LoopyArtifact;
+                            setArtifacts(prev => {
+                                const next = prev.filter(x => x.slug !== a.slug);
+                                return [...next, a];
+                            });
+                            setActiveArtifact(a.slug);
+                            setPanelOpen(true);
+                            patchAssistant(m => ({
+                                ...m,
+                                artifactSlugs: Array.from(new Set([...(m.artifactSlugs ?? []), a.slug])),
+                            }));
+                            break;
+                        }
+
+                        case "done":
+                            if (evt.conversationId) conversationIdRef.current = evt.conversationId;
+                            patchAssistant(m => ({ ...m, mood: evt.mood || "happy", activeTool: null }));
+                            break;
+
+                        case "error":
+                            patchAssistant(m => ({
+                                ...m,
+                                content: m.content || evt.message,
+                                mood: "screaming",
+                                activeTool: null,
+                            }));
+                            break;
+                    }
+                }
+            }
         } catch (error) {
             console.error(error);
-            setMessages(prev => [...prev, {
-                id: (Date.now() + 1).toString(),
-                role: "assistant",
-                content: "**Error**: Unable to cast spell (API Connection Failed). Please check your Groq API key and network.",
-                mood: "screaming"
-            }]);
+            patchAssistant(m => ({
+                ...m,
+                content: m.content || "**Error**: Couldn't reach Loopy. Check your connection and try again.",
+                mood: "screaming",
+                activeTool: null,
+            }));
         } finally {
             setIsLoading(false);
         }
@@ -150,8 +243,13 @@ export default function LoopyChatPage({ params }: { params: Promise<{ id: string
 
     const isNew = messages.length === 0;
 
+    const showPanel = panelOpen && artifacts.length > 0;
+
     return (
-        <div className="flex flex-col h-full w-full relative z-10 selection:bg-[#D4F268] selection:text-black min-h-0">
+        <div className="flex h-full w-full min-h-0 relative z-10 selection:bg-[#D4F268] selection:text-black">
+            {/* Conversation column. Narrows rather than reflows when the panel
+                opens, so the transcript keeps its position. */}
+            <div className={`flex flex-col h-full min-h-0 min-w-0 transition-[width] duration-300 ${showPanel ? "w-full lg:w-1/2" : "w-full"}`}>
             
             {/* Header: Skloop Theme (Creamy White & Lime) */}
             <header className="h-16 shrink-0 flex items-center px-8 border-b-2 border-slate-200 bg-[#FAFAF8]/80 backdrop-blur-2xl sticky top-0 z-20 transition-all shadow-sm">
@@ -217,7 +315,30 @@ export default function LoopyChatPage({ params }: { params: Promise<{ id: string
                                         }
                                     `}>
                                         {msg.role === "assistant" ? (
-                                            <LoopyResponseRenderer content={msg.content} />
+                                            <>
+                                                {/* Live tool indicator while the agent works */}
+                                                {msg.activeTool && (
+                                                    <div className="mb-3 flex items-center gap-2 text-[13px] font-bold text-[#D4F268]">
+                                                        <span className="h-2 w-2 animate-pulse rounded-full bg-[#D4F268]" />
+                                                        {TOOL_LABELS[msg.activeTool] ?? "Working"}…
+                                                    </div>
+                                                )}
+
+                                                <LoopyResponseRenderer content={msg.content} />
+
+                                                {/* Artifacts produced on this turn */}
+                                                {(msg.artifactSlugs ?? []).map(slug => {
+                                                    const a = artifacts.find(x => x.slug === slug);
+                                                    if (!a) return null;
+                                                    return (
+                                                        <ArtifactChip
+                                                            key={slug}
+                                                            artifact={a}
+                                                            onOpen={() => { setActiveArtifact(slug); setPanelOpen(true); }}
+                                                        />
+                                                    );
+                                                })}
+                                            </>
                                         ) : (
                                             <div className="whitespace-pre-wrap">{msg.content}</div>
                                         )}
@@ -227,7 +348,7 @@ export default function LoopyChatPage({ params }: { params: Promise<{ id: string
                         ))}
                     </AnimatePresence>
 
-                    {isLoading && (
+                    {isLoading && messages[messages.length - 1]?.content === "" && !messages[messages.length - 1]?.activeTool && (
                         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex gap-4 md:gap-6">
                             <div className="shrink-0 mt-1">
                                 <div className="w-12 h-12 rounded-2xl bg-[#050505] flex items-center justify-center shadow-[0_8px_0_rgba(0,0,0,0.2)] border-2 border-slate-800 relative overflow-hidden">
@@ -288,6 +409,22 @@ export default function LoopyChatPage({ params }: { params: Promise<{ id: string
                     </form>
                 </div>
             </div>
+            </div>
+
+            {/* Artifact panel. Full-screen overlay on small viewports, split on
+                large ones — there isn't room for a genuine split below lg. */}
+            <AnimatePresence>
+                {showPanel && (
+                    <div className="fixed inset-0 z-40 lg:static lg:z-auto lg:block lg:w-1/2 lg:shrink-0">
+                        <ArtifactPanel
+                            artifacts={artifacts}
+                            activeSlug={activeArtifact}
+                            onSelect={setActiveArtifact}
+                            onClose={() => setPanelOpen(false)}
+                        />
+                    </div>
+                )}
+            </AnimatePresence>
         </div>
     );
 }

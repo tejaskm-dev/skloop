@@ -572,6 +572,34 @@ export async function getFriendsList(): Promise<{
 /**
  * Uploads a file to Supabase Storage and returns the public URL.
  */
+/**
+ * Content types accepted as chat attachments.
+ *
+ * Without an allowlist, any file type could be uploaded and then served from
+ * the public storage bucket with its original content-type — which makes
+ * uploaded .html or .svg a stored-XSS and malware-hosting vector on the
+ * project's own storage domain. SVG is deliberately excluded: browsers render
+ * it as an image but it can carry <script>.
+ */
+const ALLOWED_ATTACHMENT_TYPES = new Set([
+    'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif',
+    'video/mp4', 'video/webm', 'video/quicktime',
+    'audio/webm', 'audio/mpeg', 'audio/mp4', 'audio/ogg', 'audio/wav',
+    'application/pdf',
+    'text/plain',
+]);
+
+/** Extension is derived from the resolved MIME type, never from the filename. */
+const EXT_FOR_TYPE: Record<string, string> = {
+    'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp',
+    'image/gif': 'gif', 'image/avif': 'avif',
+    'video/mp4': 'mp4', 'video/webm': 'webm', 'video/quicktime': 'mov',
+    'audio/webm': 'weba', 'audio/mpeg': 'mp3', 'audio/mp4': 'm4a',
+    'audio/ogg': 'ogg', 'audio/wav': 'wav',
+    'application/pdf': 'pdf',
+    'text/plain': 'txt',
+};
+
 export async function uploadChatFile(formData: FormData): Promise<string | null> {
     const file = formData.get('file') as File;
     if (!file) return null;
@@ -581,19 +609,27 @@ export async function uploadChatFile(formData: FormData): Promise<string | null>
         throw new Error("File is too large! Maximum size is 50MB.");
     }
 
+    const contentType = (file.type || '').toLowerCase().split(';')[0].trim();
+    if (!ALLOWED_ATTACHMENT_TYPES.has(contentType)) {
+        throw new Error("That file type isn't supported.");
+    }
+
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error("Unauthorized");
 
-    const fileExt = file.name.split('.').pop();
+    // Extension comes from the validated type, so a crafted filename like
+    // "x.html" cannot influence how storage serves the object.
+    const fileExt = EXT_FOR_TYPE[contentType] ?? 'bin';
     const fileName = `${user.id}/${crypto.randomUUID()}.${fileExt}`;
     const filePath = `${fileName}`;
 
     const { error: uploadError } = await supabase.storage
         .from('message_attachments')
-        .upload(filePath, file, { 
+        .upload(filePath, file, {
             cacheControl: '3600',
-            upsert: false 
+            upsert: false,
+            contentType,
         });
 
     if (uploadError) {

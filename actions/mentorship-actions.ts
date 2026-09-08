@@ -180,7 +180,10 @@ export async function getPublicSessions(mentorId?: string): Promise<MentorSessio
         `)
         .eq("is_public", true)
         .eq("status", "published")
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: false })
+        // Catalogue listing — capped so it cannot grow into a full-table read
+        // as published sessions accumulate.
+        .limit(100);
 
     if (mentorId) query = query.eq("mentor_id", mentorId);
 
@@ -727,6 +730,12 @@ export async function getVideoDetails(sessionId: string): Promise<VideoDetailDat
 
 export async function incrementVideoView(sessionId: string): Promise<void> {
     const supabase = await createClient();
+
+    // Requires a session: this was callable by anyone, so view counts could be
+    // inflated arbitrarily. The read-modify-write fallback below also races, so
+    // the RPC is strongly preferred — see increment_video_view.
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
     // Try RPC first (requires SQL function + GRANT from mentor_reports_schema.sql)
     const { error } = await supabase.rpc("increment_video_view", { session_id_input: sessionId });
     if (error) {

@@ -322,3 +322,34 @@ $$;
 
 REVOKE ALL ON FUNCTION public.consume_inventory_item(text) FROM public, anon;
 GRANT EXECUTE ON FUNCTION public.consume_inventory_item(text) TO authenticated;
+
+-- ---------------------------------------------------------------------------
+-- append_to_inventory — the app has referenced this RPC since before this work
+-- (openChest's reward path, and the Daily Skip refund) but it was never
+-- actually created; schema-check.sql reports it MISSING. openChest carries a
+-- manual fallback so it degraded quietly, which is exactly why nobody noticed.
+--
+-- Adding it properly. Duplicate items are not appended twice, matching the
+-- behaviour the calling code assumes.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.append_to_inventory(
+    x_user_id uuid,
+    item_id   text
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+    -- Callers are trusted server code, but scope the write anyway so a stray
+    -- call can only ever touch the row it names.
+    UPDATE profiles
+       SET inventory = COALESCE(inventory, '[]'::jsonb) || to_jsonb(ARRAY[item_id])
+     WHERE id = x_user_id
+       AND NOT (COALESCE(inventory, '[]'::jsonb) @> to_jsonb(ARRAY[item_id]));
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.append_to_inventory(uuid, text) FROM public, anon;
+GRANT EXECUTE ON FUNCTION public.append_to_inventory(uuid, text) TO authenticated;

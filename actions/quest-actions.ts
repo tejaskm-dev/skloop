@@ -333,11 +333,24 @@ export async function skipQuestWithConsumable(questKey: string, type: QuestType)
     const result = await claimQuestProgressInternal(user.id, questKey, type, target, target);
 
     if (!result.success) {
-        // Hand the item back if the quest didn't actually advance.
-        await supabase.rpc("append_to_inventory", {
+        // Hand the item back if the quest didn't actually advance. The refund is
+        // checked rather than fire-and-forget: append_to_inventory was missing
+        // from the database entirely (see migration 002), so this failed
+        // silently and the user lost the item.
+        const { error: refundError } = await supabase.rpc("append_to_inventory", {
             x_user_id: user.id,
             item_id: "item_daily_skip",
         });
+
+        if (refundError) {
+            console.error(
+                "skipQuestWithConsumable: refund FAILED, user lost item_daily_skip:",
+                user.id,
+                refundError.message
+            );
+            return { success: false, message: "Couldn't skip that quest — your Daily Skip has been reported to support." };
+        }
+
         return result;
     }
 

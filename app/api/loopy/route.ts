@@ -295,10 +295,36 @@ export async function POST(req: Request) {
                 await persistTurn(supabase, user.id, conversationId, message, visible, mood);
                 send({ type: "done", mood, conversationId });
             } catch (err) {
-                console.error("Loopy agent error:", err);
+                // Surface the real cause. The generic "syntax crashed" message
+                // gave no way to tell a Groq rejection from a database failure
+                // from a bug in the tool loop.
+                const e = err as {
+                    message?: string;
+                    status?: number;
+                    error?: { message?: string; type?: string };
+                    body?: unknown;
+                };
+
+                console.error("[loopy] agent turn failed", JSON.stringify({
+                    message: e?.message,
+                    status: e?.status,
+                    groqError: e?.error,
+                    body: e?.body,
+                    step: "model-call-or-tool-loop",
+                    toolCallsUsed,
+                    hadText: fullText.length > 0,
+                }, null, 2));
+
+                // In development, hand the actual error to the UI — guessing at
+                // a failure from a cheerful message wastes everyone's time.
+                const detail =
+                    process.env.NODE_ENV !== "production"
+                        ? ` (${e?.error?.message || e?.message || "unknown error"})`
+                        : "";
+
                 send({
                     type: "error",
-                    message: "My syntax crashed 🦉 Give that another go?",
+                    message: `My syntax crashed 🦉 Give that another go?${detail}`,
                 });
             } finally {
                 controller.close();

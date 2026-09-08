@@ -45,6 +45,44 @@ const RING_GLOWS: Record<string, string> = {
     'q_ring_singularity': 'shadow-[0_0_40px_rgba(88,28,135,1)] border-[2px] border-purple-900',
 };
 
+
+/**
+ * Whether next/image can optimise this source.
+ *
+ * The optimiser returns 400 for any remote host missing from
+ * images.remotePatterns, and OAuth providers can hand back avatars from hosts
+ * we haven't anticipated — Google's absence alone was 400ing every
+ * Google-signed-in user's photo. Rather than let an incomplete allowlist break
+ * images, unknown hosts render unoptimised: the photo still shows, it just
+ * isn't resized. The allowlist becomes a performance hint instead of a gate.
+ *
+ * Keep in step with images.remotePatterns in next.config.ts.
+ */
+const OPTIMIZABLE_HOSTS = [
+    ".supabase.co",
+    ".googleusercontent.com",
+    "avatars.githubusercontent.com",
+    "ui-avatars.com",
+    "gravatar.com",
+    "cdn.discordapp.com",
+    "pbs.twimg.com",
+];
+
+function isOptimizable(src: string): boolean {
+    // Local paths and data/blob URLs the optimiser can't process.
+    if (src.startsWith("data:") || src.startsWith("blob:")) return false;
+    if (src.startsWith("/")) return true;
+
+    try {
+        const { hostname } = new URL(src);
+        return OPTIMIZABLE_HOSTS.some((h) =>
+            h.startsWith(".") ? hostname.endsWith(h) : hostname === h
+        );
+    } catch {
+        return false;
+    }
+}
+
 export function Avatar({ src, fallback, className, frameId, glowId, onClick }: AvatarProps) {
     const frameClass = frameId ? FRAME_STYLES[frameId] : "";
     const glowClass = glowId ? RING_GLOWS[glowId] : "";
@@ -97,7 +135,7 @@ export function Avatar({ src, fallback, className, frameId, glowId, onClick }: A
                         sizes="96px"
                         className="h-full w-full object-cover"
                         onError={() => setImgError(true)}
-                        unoptimized={validSrc.startsWith("data:") || validSrc.startsWith("blob:")}
+                        unoptimized={!isOptimizable(validSrc)}
                     />
                 ) : (
                     <div className="flex h-full w-full items-center justify-center bg-primary/10 text-xs font-bold text-primary">

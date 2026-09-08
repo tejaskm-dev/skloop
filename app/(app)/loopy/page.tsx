@@ -124,7 +124,7 @@ export default function LoopyPage() {
                 </div>
 
                 {/* Noise overlay to give it texture (Glassmorphism / Grain) */}
-                <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-40 md:opacity-30 mix-blend-overlay pointer-events-none z-10" />
+                <div className="absolute inset-0 bg-[url('/noise.png')] opacity-40 md:opacity-30 mix-blend-overlay pointer-events-none z-10" />
             </motion.div>
 
             <div className="relative z-20">

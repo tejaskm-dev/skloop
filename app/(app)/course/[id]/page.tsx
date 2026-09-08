@@ -95,7 +95,7 @@ export default function CoursePage() {
         <div className="min-h-screen bg-[#FDFCF8] text-zinc-900 pb-32 relative overflow-hidden">
             {/* Background Ambient Layers */}
             <div className="fixed inset-0 z-0 pointer-events-none">
-                <div className="absolute inset-0 opacity-[0.04] mix-blend-multiply bg-[url('https://grainy-gradients.vercel.app/noise.svg')]" />
+                <div className="absolute inset-0 opacity-[0.04] mix-blend-multiply bg-[url('/noise.png')]" />
                 <motion.div
                     initial={{ opacity: 0, scale: 0.8 }}
                     animate={{ opacity: 0.4, scale: 1, x: [0, 20, 0], y: [0, -20, 0] }}

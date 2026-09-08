@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/utils/supabase/server";
+import { createClient as createAdminClient } from "@supabase/supabase-js";
 import crypto from "crypto";
+
+// NOTE: payments are not wired up yet (both create-order routes return 503), so
+// this handler should never fire in production today. The fixes below are the
+// safety-critical ones; before going live you still need idempotency keyed on
+// the Razorpay payment id — Razorpay retries, and increment_profile_stats is
+// additive, so a redelivery would grant coins twice.
 
 export async function POST(req: NextRequest) {
     if (!process.env.RAZORPAY_WEBHOOK_SECRET) {
@@ -16,12 +22,31 @@ export async function POST(req: NextRequest) {
         .update(body)
         .digest("hex");
 
-    if (signature !== expected) {
+    // Constant-time comparison: a plain !== leaks how much of the signature
+    // matched via response timing.
+    const sigBuf = Buffer.from(signature ?? "", "utf8");
+    const expBuf = Buffer.from(expected, "utf8");
+
+    if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
         return NextResponse.json({ error: "Invalid signature." }, { status: 400 });
     }
 
     const event = JSON.parse(body);
-    const supabase = await createClient();
+
+    // A webhook carries no user session, so the cookie-based client here ran as
+    // `anon` — with RLS on, every write below silently no-opped and a paying
+    // user never received their plan. Fulfilment needs the service role.
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+
+    if (!serviceRoleKey || !supabaseUrl) {
+        console.error("[razorpay-webhook] SUPABASE_SERVICE_ROLE_KEY is not set; cannot fulfil.");
+        return NextResponse.json({ error: "Fulfilment not configured." }, { status: 503 });
+    }
+
+    const supabase = createAdminClient(supabaseUrl, serviceRoleKey, {
+        auth: { autoRefreshToken: false, persistSession: false },
+    });
 
     const entity = event?.payload?.payment?.entity;
     const notes  = entity?.notes || {};
@@ -43,20 +68,31 @@ export async function POST(req: NextRequest) {
                     expiresAt.setMonth(expiresAt.getMonth() + 1);
                 }
 
-                await supabase
+                const { error: planError } = await supabase
                     .from("profiles")
                     .update({ plan, plan_expires_at: expiresAt.toISOString() })
                     .eq("id", userId);
+
+                if (planError) {
+                    console.error("[razorpay-webhook] plan update failed:", planError.message);
+                    // Non-2xx tells Razorpay to retry rather than silently dropping it.
+                    return NextResponse.json({ error: "Fulfilment failed" }, { status: 500 });
+                }
             }
 
             if (type === "coin_purchase") {
                 const coins = parseInt(notes.coins || "0", 10);
                 if (coins > 0) {
-                    await supabase.rpc("increment_profile_stats", {
+                    const { error: coinError } = await supabase.rpc("increment_profile_stats", {
                         x_user_id:   userId,
                         xp_amount:   0,
                         coins_amount: coins,
                     });
+
+                    if (coinError) {
+                        console.error("[razorpay-webhook] coin grant failed:", coinError.message);
+                        return NextResponse.json({ error: "Fulfilment failed" }, { status: 500 });
+                    }
                 }
             }
             break;

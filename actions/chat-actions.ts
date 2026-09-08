@@ -34,6 +34,44 @@ export interface MessageRow {
     snippetData?: { title: string; language: string; code: string }; // Prefetched snippet data
 }
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Access guards
+//
+// Every exported function in a "use server" module is a publicly callable POST
+// endpoint. These two helpers make the trust boundary explicit: identity always
+// comes from the session, and any function that touches a conversation first
+// proves the caller is a participant in it.
+// ─────────────────────────────────────────────────────────────────────────────
+
+type ChatClient = Awaited<ReturnType<typeof createClient>>;
+
+async function requireUser(supabase: ChatClient) {
+    const { data: { user }, error } = await supabase.auth.getUser();
+    if (error || !user) throw new Error("Unauthorized");
+    return user;
+}
+
+/**
+ * Throws unless `userId` is a participant of `conversationId`.
+ * Without this, knowing a conversation UUID was enough to read its messages,
+ * members, media and pinned items, or to post into it.
+ */
+async function requireConversationMember(
+    supabase: ChatClient,
+    conversationId: string,
+    userId: string
+) {
+    const { data, error } = await supabase
+        .from('conversation_participants')
+        .select('user_id')
+        .eq('conversation_id', conversationId)
+        .eq('user_id', userId)
+        .maybeSingle();
+
+    if (error || !data) throw new Error("Forbidden: not a member of this conversation");
+}
+
 /**
  * Fetches message history for a specific conversation with sender profiles joined.
  * Supports cursor-based pagination via `options.before` (ISO timestamp) and `options.limit`.
@@ -162,7 +200,6 @@ export async function getConversationMessages(
  */
 export async function sendMessage(
     conversationId: string,
-    senderId: string,
     content: string,
     type: MessageRow['type'] = 'text',
     caption?: string,
@@ -170,6 +207,11 @@ export async function sendMessage(
     replyToId?: string
 ): Promise<any> {
     const supabase = await createClient();
+
+    // senderId used to be a parameter, so anyone could post as anyone.
+    const user = await requireUser(supabase);
+    const senderId = user.id;
+    await requireConversationMember(supabase, conversationId, senderId);
 
     const { data, error } = await supabase
         .from('messages')
@@ -201,7 +243,6 @@ export async function sendMessage(
             .neq('user_id', senderId);
 
         if (participants && participants.length > 0) {
-            console.log(`[Chat Action] Triggering notifications for ${participants.length} participants.`);
             // 2. Get sender profile for the notification title/content
             const { data: senderProfile } = await supabase
                 .from('profiles')
@@ -212,7 +253,7 @@ export async function sendMessage(
             const senderName = senderProfile?.full_name || senderProfile?.username || `User_${senderId.slice(0, 4)}`;
             
             // 3. Create notifications for each participant
-            const { createNotification } = await import("./notification-actions");
+            const { createNotification } = await import("@/lib/server/notifications");
             
             const results = await Promise.all(participants.map(p =>
                 createNotification({
@@ -227,7 +268,6 @@ export async function sendMessage(
                     }
                 })
             ));
-            console.log(`[Chat Action] Notifications creation results:`, results.map(r => r ? "Success" : "Failed"));
 
             // Detect @mentions and send priority notifications
             const mentionMatches = content.match(/@(\w+)/g);
@@ -253,7 +293,6 @@ export async function sendMessage(
                 }
             }
         } else {
-            console.log("[Chat Action] No participants found for notification (other than sender).");
         }
     } catch (notifError) {
         // Non-blocking error for notifications
@@ -268,18 +307,14 @@ export async function sendMessage(
  * Returns the conversation ID.
  */
 export async function getOrCreateDirectConversation(targetUserId: string): Promise<string | null> {
-    console.log("[Chat Action] getOrCreateDirectConversation called for target:", targetUserId);
     const supabase = await createClient();
 
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
-        console.log("[Chat Action] No authenticated user found");
         return null;
     }
-    console.log("[Chat Action] Authenticated user:", user.id);
 
     // Call the "God Mode" RPC to handle the entire creation flow atomically
-    console.log("[Chat Action] Calling initiate_direct_chat RPC...");
     const { data: convoId, error: rpcError } = await supabase
         .rpc('initiate_direct_chat', {
             target_user_id: targetUserId,
@@ -291,7 +326,6 @@ export async function getOrCreateDirectConversation(targetUserId: string): Promi
         return null;
     }
 
-    console.log("[Chat Action] initiate_direct_chat success! Convo ID:", convoId);
     return convoId as string;
 }
 
@@ -299,14 +333,11 @@ export async function getOrCreateDirectConversation(targetUserId: string): Promi
  * Fetches all conversations the current user is part of, with last-message previews.
  */
 export async function getUserConversations() {
-    console.log("[Chat Action] getUserConversations called");
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
-        console.log("[Chat Action] getUserConversations: No user found");
         return { dms: [], groups: [] };
     }
-    console.log("[Chat Action] getUserConversations for user:", user.id);
 
     // Get all conversation IDs for this user
     const { data: myConvos, error } = await supabase
@@ -320,7 +351,6 @@ export async function getUserConversations() {
         .eq('user_id', user.id);
     
     if (error || !myConvos || myConvos.length === 0) {
-        console.log("[Chat Action] getUserConversations: No conversations found", error);
         return { dms: [], groups: [] };
     }
 
@@ -330,7 +360,6 @@ export async function getUserConversations() {
         const timeB = new Date((b.conversations as any)?.updated_at || 0).getTime();
         return timeB - timeA;
     });
-    console.log("[Chat Action] getUserConversations: Found", myConvos.length, "participants/convo links");
 
     const convoIds = myConvos.map((mc: any) => mc.conversation_id);
 
@@ -342,7 +371,10 @@ export async function getUserConversations() {
         .in('conversation_id', convoIds)
         .neq('sender_id', user.id)
         .neq('status', 'read')
-        .eq('is_deleted', false);
+        .eq('is_deleted', false)
+        // Badge counts don't need to be exact past a point, and this stops one
+        // very stale conversation from dragging thousands of rows over the wire.
+        .limit(500);
 
     const unreadMap = new Map<string, number>();
 
@@ -378,12 +410,26 @@ export async function getUserConversations() {
         .in('conversation_id', convoIds)
         .neq('user_id', user.id);
 
-    // Pull last messages for preview
+    // Pull last messages for preview.
+    //
+    // This previously had no limit: it fetched EVERY message in EVERY
+    // conversation the user belongs to, ordered desc, then kept the first per
+    // conversation in JS. Cost grew with total message history on every load of
+    // the conversation list — and on Supabase's free tier that egress is
+    // metered. The row cap keeps it bounded; a conversation whose last message
+    // falls outside the window simply shows no preview, which is far better
+    // than transferring an entire history to render one line of text.
+    //
+    // The durable fix is a `last_message_id` column on `conversations`,
+    // maintained by a trigger — see migration 006.
+    const LAST_MESSAGE_SCAN_CAP = 400;
     const { data: lastMessages } = await supabase
         .from('messages')
         .select('conversation_id, content, created_at, sender_id')
         .in('conversation_id', convoIds)
-        .order('created_at', { ascending: false });
+        .eq('is_deleted', false)
+        .order('created_at', { ascending: false })
+        .limit(LAST_MESSAGE_SCAN_CAP);
 
     // Build a map: conversation_id -> last message
     const lastMsgMap = new Map<string, { content: string; created_at: string; sender_id: string }>();
@@ -449,6 +495,9 @@ export async function getUserConversations() {
 export async function getConversationMembers(conversationId: string) {
     const supabase = await createClient();
 
+    const user = await requireUser(supabase);
+    await requireConversationMember(supabase, conversationId, user.id);
+
     const { data, error } = await supabase
         .from('conversation_participants')
         .select(`
@@ -489,7 +538,6 @@ export async function getFriendsList(): Promise<{
     username: string;
     avatarUrl?: string;
 }[]> {
-    console.log("[Chat Action] getFriendsList called");
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return [];
@@ -501,10 +549,8 @@ export async function getFriendsList(): Promise<{
         .or(`requester_id.eq.${user.id},recipient_id.eq.${user.id}`);
 
     if (!connections || connections.length === 0) {
-        console.log("[Chat Action] getFriendsList: No accepted connections found");
         return [];
     }
-    console.log("[Chat Action] getFriendsList: Found", connections.length, "connections");
 
     const peerIds = connections.map((c: any) =>
         c.requester_id === user.id ? c.recipient_id : c.requester_id
@@ -738,6 +784,9 @@ export async function getMessageStatuses(messageId: string) {
         
     if (msgError || !msg) return [];
 
+    const user = await requireUser(supabase);
+    await requireConversationMember(supabase, msg.conversation_id, user.id);
+
     // 2. Fetch all participants in the conversation (except the sender)
     const { data: participants } = await supabase
         .from('conversation_participants')
@@ -857,6 +906,10 @@ export async function pinMessage(conversationId: string, messageId: string) {
  */
 export async function unpinMessage(conversationId: string) {
     const supabase = await createClient();
+
+    const user = await requireUser(supabase);
+    await requireConversationMember(supabase, conversationId, user.id);
+
     const { error } = await supabase
         .from('pinned_messages')
         .delete()
@@ -871,6 +924,9 @@ export async function unpinMessage(conversationId: string) {
  */
 export async function getPinnedMessage(conversationId: string) {
     const supabase = await createClient();
+
+    const user = await requireUser(supabase);
+    await requireConversationMember(supabase, conversationId, user.id);
     const { data, error } = await supabase
         .from('pinned_messages')
         .select(`
@@ -909,11 +965,14 @@ export interface PollOption { text: string; }
  */
 export async function createPoll(
     conversationId: string,
-    senderId: string,
     question: string,
     options: PollOption[]
 ) {
     const supabase = await createClient();
+
+    const user = await requireUser(supabase);
+    const senderId = user.id;
+    await requireConversationMember(supabase, conversationId, senderId);
 
     // First create the message placeholder
     const { data: msgData, error: msgError } = await supabase
@@ -956,6 +1015,19 @@ export async function createPoll(
  */
 export async function getPoll(pollId: string) {
     const supabase = await createClient();
+
+    const user = await requireUser(supabase);
+
+    const { data: pollRow } = await supabase
+        .from('polls')
+        .select('conversation_id')
+        .eq('id', pollId)
+        .maybeSingle();
+
+    if (pollRow?.conversation_id) {
+        await requireConversationMember(supabase, pollRow.conversation_id, user.id);
+    }
+
     const { data, error } = await supabase
         .from('polls')
         .select(`*, poll_votes ( option_index, user_id )`)
@@ -997,11 +1069,14 @@ export async function votePoll(pollId: string, optionIndex: number) {
  */
 export async function scheduleMessage(
     conversationId: string,
-    senderId: string,
     content: string,
     sendAt: string // ISO string
 ) {
     const supabase = await createClient();
+
+    const user = await requireUser(supabase);
+    const senderId = user.id;
+    await requireConversationMember(supabase, conversationId, senderId);
     const { data, error } = await supabase.from('scheduled_messages').insert({
         conversation_id: conversationId,
         sender_id: senderId,
@@ -1018,13 +1093,17 @@ export async function scheduleMessage(
  * Fetches all pending scheduled messages for a conversation
  * that are overdue (past send_at time).
  */
-export async function getOverdueScheduledMessages(conversationId: string, userId: string) {
+export async function getOverdueScheduledMessages(conversationId: string) {
     const supabase = await createClient();
+
+    const user = await requireUser(supabase);
+    await requireConversationMember(supabase, conversationId, user.id);
+
     const { data, error } = await supabase
         .from('scheduled_messages')
         .select('*')
         .eq('conversation_id', conversationId)
-        .eq('sender_id', userId)
+        .eq('sender_id', user.id)
         .eq('is_sent', false)
         .lte('send_at', new Date().toISOString())
         .order('send_at', { ascending: true });
@@ -1065,8 +1144,10 @@ export async function getPendingScheduledMessages(conversationId: string) {
  * Fetches all media (images, videos, files) from a conversation.
  */
 export async function getConversationMedia(conversationId: string) {
-    console.log(`[Action] getConversationMedia: Fetching for convo ${conversationId}`);
     const supabase = await createClient();
+
+    const user = await requireUser(supabase);
+    await requireConversationMember(supabase, conversationId, user.id);
 
     // Fetch messages with a broader query to see what's happening
     const { data, error } = await supabase
@@ -1088,7 +1169,6 @@ export async function getConversationMedia(conversationId: string) {
         return [];
     }
 
-    console.log(`[Action] getConversationMedia: Found ${data?.length || 0} total messages`);
 
     if (!data || data.length === 0) return [];
 
@@ -1159,7 +1239,6 @@ export async function getConversationMedia(conversationId: string) {
         return results;
     });
 
-    console.log(`[Action] getConversationMedia: Returning ${allMedia.length} media items`);
     return allMedia;
 }
 
@@ -1168,12 +1247,15 @@ export async function getConversationMedia(conversationId: string) {
  */
 export async function sendCodeSnippet(
     conversationId: string,
-    senderId: string,
     title: string,
     code: string,
     language: string
 ) {
     const supabase = await createClient();
+
+    const user = await requireUser(supabase);
+    const senderId = user.id;
+    await requireConversationMember(supabase, conversationId, senderId);
     const snippetId = crypto.randomUUID();
 
     // 1. Create the code snippet entry first
@@ -1226,6 +1308,20 @@ export async function sendCodeSnippet(
  */
 export async function getCodeSnippet(snippetId: string) {
     const supabase = await createClient();
+
+    const user = await requireUser(supabase);
+
+    // A snippet id alone used to be enough to read anyone's shared code.
+    const { data: linkedMessage } = await supabase
+        .from('messages')
+        .select('conversation_id')
+        .eq('snippet_id', snippetId)
+        .maybeSingle();
+
+    if (linkedMessage?.conversation_id) {
+        await requireConversationMember(supabase, linkedMessage.conversation_id, user.id);
+    }
+
     const { data, error } = await supabase
         .from('code_snippets')
         .select('*')

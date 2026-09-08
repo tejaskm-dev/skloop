@@ -1,20 +1,10 @@
 import { NextResponse } from "next/server";
-import Groq from "groq-sdk";
+import { getGroq, GROQ_UNAVAILABLE } from "@/lib/server/groq";
+import { checkRateLimit } from "@/lib/server/rate-limit";
 import { createClient } from "@/utils/supabase/server";
 
-if (!process.env.GROQ_API_KEY) throw new Error("GROQ_API_KEY is not set");
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-const rateLimitMap = new Map<string, { count: number; resetAt: number }>()
-function checkRateLimit(userId: string): boolean {
-    const now = Date.now()
-    const entry = rateLimitMap.get(userId)
-    if (!entry || entry.resetAt < now) { rateLimitMap.set(userId, { count: 1, resetAt: now + 60000 }); return true }
-    if (entry.count >= 20) return false
-    entry.count++
-    return true
-}
 
 const EXPLAIN_SYSTEM_PROMPT = `
 You are Loopy 🦉, the AI companion embedded in Skloop's chat.
@@ -44,7 +34,10 @@ export async function POST(req: Request) {
         const supabase = await createClient();
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-        if (!checkRateLimit(user.id)) return NextResponse.json({ error: 'Rate limit exceeded' }, { status: 429 });
+        if (!await checkRateLimit(supabase, "loopy-chat", user.id, { limit: 20 })) return NextResponse.json({ error: 'Rate limit exceeded' }, { status: 429 });
+
+        const groqClient = getGroq();
+        if (!groqClient) return NextResponse.json(GROQ_UNAVAILABLE, { status: 503 });
 
         const { mode, messages } = await req.json();
 
@@ -64,7 +57,7 @@ export async function POST(req: Request) {
             ? `Here are the recent chat messages. Please explain the most recent code or technical concept:\n\n${transcript}`
             : `Here are the messages I missed. Please summarize:\n\n${transcript}`;
 
-        const chatCompletion = await groq.chat.completions.create({
+        const chatCompletion = await groqClient.chat.completions.create({
             messages: [
                 { role: "system", content: systemPrompt },
                 { role: "user", content: userPrompt },

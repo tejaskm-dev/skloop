@@ -48,7 +48,7 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
                 if (lesson.type === "video" || lesson.type === "article" || lesson.type === "quiz" || lesson.type === "challenge" || lesson.type === "flowchart") {
 
                     const { awardTopicCompletion } = await import("@/actions/course-actions");
-                    const result = await awardTopicCompletion(user.id, lesson.id);
+                    const result = await awardTopicCompletion(lesson.id);
 
                     if (!result.success) {
                         alert(result.error || "Cannot complete this topic yet.");
@@ -84,7 +84,7 @@ export default function LessonPage({ params }: { params: Promise<{ lessonId: str
                 const supabase = createClient();
                 const { data: { user } } = await supabase.auth.getUser();
                 if (user) {
-                    await claimDailyQuest(user.id, 'lesson').catch(err => console.error("Failed to log lesson quest", err));
+                    await claimDailyQuest('lesson').catch(err => console.error("Failed to log lesson quest", err));
                 }
             } catch (ignore) { }
 

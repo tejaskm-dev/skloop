@@ -56,7 +56,7 @@ export function QuestsModule() {
         setClaimingId(questId);
         try {
             const { claimDailyQuest } = await import('@/actions/task-actions');
-            const result = await claimDailyQuest(user.id, questId);
+            const result = await claimDailyQuest(questId);
 
             setClaimFeedback({ id: questId, message: result.message });
             if (result.success) {
@@ -99,7 +99,7 @@ export function QuestsModule() {
 
         try {
             const { getSealedChests, openChest } = await import("@/actions/quest-actions");
-            const sealed = await getSealedChests(user.id);
+            const sealed = await getSealedChests();
             const targetChest = sealed.find(c => c.chest_type === chestClaiming.rarity);
             
             if (!targetChest) {

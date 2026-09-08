@@ -5,9 +5,13 @@ import { createClient } from "@/utils/supabase/server";
 /**
  * Fetches the primary course or track for the user's dashboard hero
  */
-export async function getHeroCourse(userId: string) {
+export async function getHeroCourse() {
     try {
         const supabase = await createClient();
+
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return null;
+        const userId = user.id;
 
         // 1. Check for started courses
         const { data, error } = await supabase
@@ -155,8 +159,13 @@ export async function getHeroCourse(userId: string) {
 /**
  * Fetches all courses started by a user
  */
-export async function getUserCourses(userId: string) {
+export async function getUserCourses() {
     const supabase = await createClient();
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+    const userId = user.id;
+
     const { data, error } = await supabase
         .from("user_courses")
         .select(`
@@ -180,8 +189,13 @@ export async function getUserCourses(userId: string) {
 /**
  * Intelligently finds the most relevant unfinished course or track slug to resume.
  */
-export async function getResumeCourseSlug(userId: string): Promise<string | null> {
+export async function getResumeCourseSlug(): Promise<string | null> {
     const supabase = await createClient();
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return null;
+    const userId = user.id;
+
 
     // 1. Check user_courses for an unfinished course
     const { data: userCourses } = await supabase
@@ -216,19 +230,22 @@ export async function getResumeCourseSlug(userId: string): Promise<string | null
 
     const completedTopicIds = new Set(completedTopics?.map(t => t.topic_id) || []);
 
-    // Fetch modules and topics to map them to tracks
-    const { data: modules } = await supabase.from('modules').select('id, track_id');
-    const { data: topics } = await supabase.from('topics').select('id, module_id');
+    // Map topics to tracks.
+    //
+    // This used to pull the ENTIRE modules and topics tables (no filter, no
+    // limit) on every dashboard load, then do `modules.find()` inside a loop
+    // over topics — O(topics x modules). Joining topics -> modules in one query
+    // lets Postgres do the work, and a Map makes the grouping linear.
+    const { data: topicRows } = await supabase
+        .from('topics')
+        .select('id, modules!inner(track_id)');
 
     const trackTopics: Record<string, string[]> = {};
-    if (modules && topics) {
-        for (const t of topics) {
-            const mod = modules.find(m => m.id === t.module_id);
-            if (mod) {
-                if (!trackTopics[mod.track_id]) trackTopics[mod.track_id] = [];
-                trackTopics[mod.track_id].push(t.id);
-            }
-        }
+    for (const t of (topicRows ?? []) as any[]) {
+        const mod = Array.isArray(t.modules) ? t.modules[0] : t.modules;
+        const trackId = mod?.track_id;
+        if (!trackId) continue;
+        (trackTopics[trackId] ||= []).push(t.id);
     }
 
     // Find the first track that is NOT fully completed
@@ -249,8 +266,12 @@ export async function getResumeCourseSlug(userId: string): Promise<string | null
 /**
  * Marks a topic as completed, enforcing sequential progression, and awards XP/Coins.
  */
-export async function awardTopicCompletion(userId: string, topicId: string) {
+export async function awardTopicCompletion(topicId: string) {
     const supabase = await createClient();
+
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) return { success: false, error: 'Unauthorized' };
+    const userId = user.id;
 
     // 1. Fetch current topic
     const { data: topic, error: topicError } = await supabase

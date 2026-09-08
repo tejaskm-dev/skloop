@@ -6,7 +6,7 @@ import {
     ShoppingBag, Shield, CreditCard, Palette, Tag, Zap,
     CheckCircle, HelpCircle, Crown, Circle, Diamond, GitBranch
 } from "lucide-react";
-import { createClient } from "@/utils/supabase/client";
+import { purchaseShopItem } from "@/actions/shop-actions";
 import { ShopItem, ShopItemCategory } from "@/lib/shop-items";
 import { sfx } from "@/lib/sfx";
 import { ItemArtwork } from "@/components/shop/ItemArtwork";
@@ -614,38 +614,31 @@ export default function ShopPage() {
     const streakShields = shopData?.streakShields || 0;
 
     const handlePurchase = async (item: ShopItem) => {
-        if (coins < item.price) { 
+        // These two are UX guards only — the authoritative balance and
+        // ownership checks happen server-side in purchase_shop_item().
+        if (coins < item.price) {
             toast("Not enough coins. Need " + (item.price - coins).toLocaleString() + " more.", "error");
             return false;
         }
-        if (item.category !== "consumable" && inventory.includes(item.id)) { 
+        if (item.category !== "consumable" && inventory.includes(item.id)) {
             toast("You already have this item in your collection.", "info");
             return false;
         }
         setProcessingId(item.id);
         try {
-            const supabase = createClient();
-            const { data: { user } } = await supabase.auth.getUser();
-            if (!user) throw new Error("Not logged in");
-            const newCoins = coins - item.price;
-            const newInventory = [...inventory, item.id]; 
-            const newShields = item.id === "item_streak_shield" ? streakShields + 1 : streakShields;
+            const result = await purchaseShopItem(item.id);
 
-            const { error } = await supabase.from("profiles")
-                .update({
-                    coins: newCoins,
-                    inventory: newInventory,
-                    streak_shields: newShields
-                })
-                .eq("id", user.id);
+            if (!result.success) {
+                toast(result.error || "Something went wrong. Please try again.", "error");
+                return false;
+            }
 
-            if (error) throw error;
-
+            // Trust the server's post-purchase state rather than recomputing it.
             mutate({
                 ...shopData,
-                coins: newCoins,
-                inventory: newInventory,
-                streakShields: newShields,
+                coins: result.coins ?? coins,
+                inventory: result.inventory ?? inventory,
+                streakShields: result.streakShields ?? streakShields,
             }, false);
             mutate();
 

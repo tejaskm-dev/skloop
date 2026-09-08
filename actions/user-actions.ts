@@ -120,65 +120,37 @@ export async function processDailyLogin(clientUserId: string) {
 }
 
 /**
- * Activates a consumable boost (e.g., XP Booster) from the user's inventory.
+ * Fetches a profile. Omit userId for the caller's own profile.
+ *
+ * Callers must be authenticated, and this returns an explicit public column
+ * list rather than select("*") — the previous version handed back every column
+ * of any profile to any caller.
  */
-export async function activateBoostItem(userId: string, itemId: string) {
+export async function fetchUserProfile(userId?: string) {
     const supabase = await createClient();
 
-    // 1. Fetch profile to check inventory
-    const { data: profile, error } = await supabase
-        .from("profiles")
-        .select("inventory, active_powers")
-        .eq("id", userId)
-        .single();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) return null;
 
-    if (error || !profile) return { success: false, error: "Profile not found" };
+    const targetId = userId ?? user.id;
+    const isSelf = targetId === user.id;
 
-    const inventory = profile.inventory || [];
-    if (!inventory.includes(itemId)) return { success: false, error: "Item not in inventory" };
-
-    // 2. Determine boost effects based on itemId
-    const now = new Date();
-    const expires = new Date(now.getTime() + 60 * 60 * 1000).toISOString(); // Default 1 hour
-
-    let powers = { ...(profile.active_powers || {}) };
-
-    if (itemId === 'item_xp_booster') {
-        powers.xp_multiplier = 2;
-        powers.xp_expires = expires;
-    } else if (itemId === 'item_coin_magnet') {
-        powers.coins_multiplier = 2;
-        powers.coins_expires = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString(); // 24 hours
-    } else {
-        return { success: false, error: "Unknown boost item" };
+    if (isSelf) {
+        const { data, error } = await supabase
+            .from("profiles")
+            .select("*")
+            .eq("id", targetId)
+            .single();
+        return error ? null : data;
     }
 
-    // 3. Remove from inventory and update active_powers
-    const newInventory = inventory.filter((id: string) => id !== itemId);
-    const { error: updateError } = await supabase
-        .from("profiles")
-        .update({
-            inventory: newInventory,
-            active_powers: powers
-        })
-        .eq("id", userId);
-
-    if (updateError) return { success: false, error: updateError.message };
-
-    revalidatePath("/profile");
-    revalidatePath("/shop");
-    return { success: true, message: "Boost activated!", expires };
-}
-
-/**
- * Fetches a user profile by ID
- */
-export async function fetchUserProfile(userId: string) {
-    const supabase = await createClient();
+    // Someone else's profile: only the fields the public UI renders. The
+    // previous select("*") handed back plan, inventory, coins and preferences
+    // for any user id supplied by the caller.
     const { data, error } = await supabase
         .from("profiles")
-        .select("*")
-        .eq("id", userId)
+        .select("id, full_name, username, bio, avatar_url, banner_url, location, website, role, level, xp, streak, is_mentor, last_seen, created_at")
+        .eq("id", targetId)
         .single();
 
     if (error) return null;
@@ -203,12 +175,15 @@ export async function signOutAction() {
  * Updates the last_seen timestamp for a user.
  * Used for online/offline status indicators.
  */
-export async function updateLastSeen(userId: string) {
+export async function updateLastSeen() {
     const supabase = await createClient();
-    await supabase
-        .from("profiles")
-        .update({ last_seen: new Date().toISOString() })
-        .eq("id", userId);
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    // last_seen is no longer client-writable (migration 001); touch_last_seen()
+    // stamps the caller's own row.
+    await supabase.rpc("touch_last_seen");
 }
 
 /**

@@ -281,7 +281,7 @@ export default function TypingGame() {
 
         if (user) {
             import('@/actions/quest-actions').then(({ claimQuestProgress }) => {
-                claimQuestProgress(user.id, 'type_race', 'daily', 1, 1)
+                claimQuestProgress('type_race', 'daily')
                     .then((result) => {
                         refreshProfile();
                         if (result.isComplete && result.xpAwarded) {

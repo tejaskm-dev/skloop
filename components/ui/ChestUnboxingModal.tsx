@@ -70,7 +70,7 @@ export function ChestUnboxingModal({ isOpen, onClose, chestData, onSuccess }: Ch
         if (!user || !chestData.type) return;
         setIsProcessing(true);
         try {
-            const res = await saveChestAction(user.id, chestData.type);
+            const res = await saveChestAction(chestData.type);
             if (res.success) {
                 toast("Chest saved to your loadout!", "success");
                 onSuccess?.();
@@ -109,7 +109,7 @@ export function ChestUnboxingModal({ isOpen, onClose, chestData, onSuccess }: Ch
                 res = await openChest(chestData.id);
             } else if (chestData.type) {
                 // Claiming AND opening
-                res = await claimAndOpenChest(user.id, chestData.type);
+                res = await claimAndOpenChest(chestData.type);
             }
 
             const result = res as { success: boolean; reward: any; bonusCoins: number; error?: string };

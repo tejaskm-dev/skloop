@@ -94,6 +94,14 @@ export interface Quest {
     sort_order: number;
 }
 
+export interface QuestClaimResult {
+    success: boolean;
+    message?: string;
+    isComplete?: boolean;
+    xpAwarded?: number;
+    coinsAwarded?: number;
+}
+
 export interface QuestProgress extends Quest {
     is_completed: boolean;
     auto_progress: number;
@@ -104,9 +112,13 @@ export interface QuestProgress extends Quest {
 /**
  * Fetch all quests of a specific type (e.g. 'daily') and merge with the current user's completion status for this cycle.
  */
-export async function getUserQuestProgress(userId: string, type: QuestType) {
+export async function getUserQuestProgress(type: QuestType) {
     const supabase = await createClient();
     const cycleKey = getCycleKey(type);
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+    const userId = user.id;
 
     // 1. Get all quests of this type
     const { data: quests, error: questsError } = await supabase
@@ -148,14 +160,40 @@ export async function getUserQuestProgress(userId: string, type: QuestType) {
  * Marks a quest as complete (or increments progress). If the quest hits the threshold, awards XP/Coins.
  * FIX 3: Replaced upsert (that required a missing unique constraint) with explicit insert/update pattern.
  */
-export async function claimQuestProgress(userId: string, questKey: string, type: QuestType, progressAmount = 1, targetAmount = 1) {
+/**
+ * Public entry point. Identity comes from the session and the target comes from
+ * the server-side QUEST_TARGETS map — the old signature took userId,
+ * progressAmount AND targetAmount from the caller, so any quest could be
+ * completed instantly for any user.
+ *
+ * Multi-step quests are additionally limited to one increment per calendar day
+ * so they can't be finished by calling this N times in a row.
+ */
+export async function claimQuestProgress(questKey: string, type: QuestType): Promise<QuestClaimResult> {
+    const supabase = await createClient();
+
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+        return { success: false, message: 'Unauthorized' };
+    }
+
+    const target = QUEST_TARGETS[questKey] ?? 1;
+    return claimQuestProgressInternal(user.id, questKey, type, 1, target);
+}
+
+/**
+ * Trusted worker. NOT exported as a server action — callers must already have
+ * established who the user is and what the legitimate target is.
+ */
+async function claimQuestProgressInternal(userId: string, questKey: string, type: QuestType, progressAmount = 1, targetAmount = 1): Promise<QuestClaimResult> {
     const supabase = await createClient();
     const cycleKey = getCycleKey(type);
+    const todayStr = new Date().toISOString().split('T')[0];
 
     // 1. Check if already fully claimed
     const { data: existing } = await supabase
         .from('daily_quest_completions')
-        .select('auto_progress')
+        .select('auto_progress, last_progress_date')
         .eq('user_id', userId)
         .eq('quest_id', questKey)
         .eq('cycle_key', cycleKey)
@@ -163,6 +201,12 @@ export async function claimQuestProgress(userId: string, questKey: string, type:
 
     if (existing && existing.auto_progress === -1) {
         return { success: false, message: 'Quest already completed' };
+    }
+
+    // Multi-step quests (weekly streaks, monthly counts) may only advance once
+    // per day, otherwise N rapid calls would finish them outright.
+    if (targetAmount > 1 && existing?.last_progress_date === todayStr) {
+        return { success: false, message: 'Already progressed today' };
     }
 
     // Calculate new progress
@@ -185,6 +229,7 @@ export async function claimQuestProgress(userId: string, questKey: string, type:
             .from('daily_quest_completions')
             .update({
                 auto_progress: finalProgressToSave,
+                last_progress_date: todayStr,
                 xp_awarded: isNowComplete ? questDetails.xp_reward : 0,
                 coins_awarded: isNowComplete ? questDetails.coins_reward : 0
             })
@@ -194,7 +239,7 @@ export async function claimQuestProgress(userId: string, questKey: string, type:
 
         if (updateError) {
             console.error('Error updating quest progress:', updateError);
-            return { success: false, error: updateError };
+            return { success: false, message: 'Failed to update quest progress' };
         }
     } else {
         const { error: insertError } = await supabase
@@ -205,13 +250,14 @@ export async function claimQuestProgress(userId: string, questKey: string, type:
                 cycle_key: cycleKey,
                 quest_type: questDetails.type,
                 auto_progress: finalProgressToSave,
+                last_progress_date: todayStr,
                 xp_awarded: isNowComplete ? questDetails.xp_reward : 0,
                 coins_awarded: isNowComplete ? questDetails.coins_reward : 0
             });
 
         if (insertError) {
             console.error('Error inserting quest progress:', insertError);
-            return { success: false, error: insertError };
+            return { success: false, message: 'Failed to record quest progress' };
         }
     }
 
@@ -260,48 +306,71 @@ export async function claimQuestProgress(userId: string, questKey: string, type:
  * Uses a 'Daily Skip' item to instantly complete a quest.
  * FIX 12: Uses QUEST_TARGETS map to look up correct target per quest.
  */
-export async function skipQuestWithConsumable(userId: string, questKey: string, type: QuestType) {
+export async function skipQuestWithConsumable(questKey: string, type: QuestType): Promise<QuestClaimResult> {
     const supabase = await createClient();
 
-    // FIX 5: Verify the user from session, not from parameter
     const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (!user || authError) return { success: false, error: 'Unauthorized' };
+    if (!user || authError) return { success: false, message: 'Unauthorized' };
 
-    // 1. Check inventory for skip item
-    const { data: profile } = await supabase
-        .from("profiles")
-        .select("inventory")
-        .eq("id", user.id)
-        .single();
+    // Consume the item FIRST, atomically. It returns false if the user doesn't
+    // actually hold one, which also serves as the concurrency guard — two
+    // simultaneous skips can't both spend the same item.
+    const { data: consumed, error: consumeError } = await supabase.rpc(
+        "consume_inventory_item",
+        { p_item_id: "item_daily_skip" }
+    );
 
-    const inventory = profile?.inventory || [];
-    if (!inventory.includes('item_daily_skip')) {
-        return { success: false, error: "No Daily Skip items available." };
+    if (consumeError) {
+        console.error("skipQuestWithConsumable consume error:", consumeError.message);
+        return { success: false, message: "Could not use Daily Skip." };
     }
 
-    // 2. Complete the quest using the correct target from the map (FIX 12)
+    if (!consumed) {
+        return { success: false, message: "No Daily Skip items available." };
+    }
+
     const target = QUEST_TARGETS[questKey] ?? 1;
-    const result = await claimQuestProgress(user.id, questKey, type, target, target);
+    const result = await claimQuestProgressInternal(user.id, questKey, type, target, target);
 
-    if (result.success) {
-        // 3. Deduct one skip item
-        const newInventory = inventory.filter((id: string) => id !== 'item_daily_skip');
-        await supabase.from("profiles").update({ inventory: newInventory }).eq("id", user.id);
-        revalidatePath("/profile");
-        return { success: true, message: "Quest skipped!" };
+    if (!result.success) {
+        // Hand the item back if the quest didn't actually advance.
+        await supabase.rpc("append_to_inventory", {
+            x_user_id: user.id,
+            item_id: "item_daily_skip",
+        });
+        return result;
     }
 
-    return result;
+    revalidatePath("/profile");
+    return { success: true, message: "Quest skipped!" };
 }
 
 /**
  * Records a milestone event to the user's timeline
  */
-export async function recordTimelineEvent(
-    userId: string, 
-    title: string, 
-    subtitle?: string, 
-    description?: string, 
+/**
+ * Records a milestone on the caller's own timeline. The user id comes from the
+ * session — the previous signature let anyone write timeline rows for anyone.
+ */
+export async function recordOwnTimelineEvent(
+    title: string,
+    subtitle?: string,
+    description?: string,
+    iconType: string = 'rocket',
+    color: string = 'text-lime-500'
+) {
+    const supabase = await createClient();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) return { success: false, error: 'Unauthorized' };
+
+    return recordTimelineEvent(user.id, title, subtitle, description, iconType, color);
+}
+
+async function recordTimelineEvent(
+    userId: string,
+    title: string,
+    subtitle?: string,
+    description?: string,
     iconType: string = 'rocket',
     color: string = 'text-lime-500'
 ) {
@@ -330,52 +399,26 @@ export async function recordTimelineEvent(
 // --- Chest Actions ---
 
 /** Fetch all un-opened chests */
-export async function getSealedChests(userId: string) {
+export async function getSealedChests() {
     const supabase = await createClient();
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+
     const { data } = await supabase
         .from('user_chests')
         .select('*')
-        .eq('user_id', userId)
+        .eq('user_id', user.id)
         .eq('status', 'sealed')
         .order('earned_at', { ascending: false });
     return data || [];
 }
 
 /** 
- * Admin/Dev function to manually grant a chest to a user.
- */
-export async function grantAdminChest(userId: string, chestType: 'common' | 'rare' | 'legendary') {
-    const supabase = await createClient();
-
-    // FIX 5: Verify the user is authenticated
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (!user || authError) return { success: false, error: 'Unauthorized' };
-
-    const adminCycleKey = `admin_grant:${new Date().getTime()}`;
-
-    const { data, error } = await supabase.from('user_chests').insert({
-        user_id: user.id,
-        chest_type: chestType,
-        cycle_key: adminCycleKey,
-        status: 'sealed'
-    }).select().single();
-
-    if (error) {
-        console.error('Error granting admin chest:', error);
-        return { success: false, error: error.message };
-    }
-
-    revalidatePath('/profile');
-    revalidatePath('/');
-
-    return { success: true, chest: data };
-}
-
-/** 
  * Handled by the UI when the user clicks 'Claim' on a 3/3 quest cycle.
  * FIX 9: Added chest_type filter to prevent returning the wrong chest.
  */
-export async function saveChestAction(userId: string, type: QuestType) {
+export async function saveChestAction(type: QuestType) {
     const supabase = await createClient();
     const cycleKey = getCycleKey(type);
 
@@ -546,9 +589,9 @@ export async function openChest(chestId: string) {
  * One-stop shop for claiming a cycle reward AND opening it immediately.
  * Used by the High-Fidelity unboxing flow when the user chooses 'Open' instead of 'Save'.
  */
-export async function claimAndOpenChest(userId: string, type: QuestType) {
+export async function claimAndOpenChest(type: QuestType) {
     // 1. Save it first
-    const saveResult = await saveChestAction(userId, type);
+    const saveResult = await saveChestAction(type);
     if (!saveResult.success || !saveResult.chest) {
         return saveResult;
     }

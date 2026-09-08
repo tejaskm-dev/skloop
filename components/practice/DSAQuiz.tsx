@@ -152,9 +152,9 @@ export default function DSAQuiz() {
             if (user) {
                 import('@/actions/quest-actions').then(({ claimQuestProgress }) => {
                     Promise.all([
-                        claimQuestProgress(user.id, 'quiz_attempt', 'daily',   1, 1),
-                        claimQuestProgress(user.id, 'quiz_3w',      'weekly',  1, 3),
-                        claimQuestProgress(user.id, 'quiz_10m',     'monthly', 1, 10),
+                        claimQuestProgress('quiz_attempt', 'daily'),
+                        claimQuestProgress('quiz_3w',      'weekly'),
+                        claimQuestProgress('quiz_10m',     'monthly'),
                     ])
                         .then(([dailyResult]) => {
                             refreshProfile();

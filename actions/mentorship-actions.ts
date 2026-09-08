@@ -462,74 +462,27 @@ export async function redeemVouchCode(code: string): Promise<{ success: boolean;
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return { success: false, error: "Not logged in" };
 
-    // Find the code
-    const { data: vouchCode } = await supabase
-        .from("mentor_vouch_codes")
-        .select("id, used_by, expires_at")
-        .eq("code", code.toUpperCase().trim())
-        .single();
+    // Validation, consumption of the code, and the mentor grant all happen
+    // inside grant_mentor_via_vouch(). Doing it in one statement closes the
+    // race where two callers could redeem the same code concurrently.
+    const { data, error } = await supabase.rpc("grant_mentor_via_vouch", {
+        p_code: code,
+    });
 
-    if (!vouchCode) return { success: false, error: "Invalid code" };
-    if (vouchCode.used_by) return { success: false, error: "This code has already been used" };
-    if (vouchCode.expires_at && new Date(vouchCode.expires_at) < new Date()) {
-        return { success: false, error: "This code has expired" };
+    if (error) {
+        console.error("redeemVouchCode RPC error:", error.message);
+        return { success: false, error: "Could not redeem code" };
     }
 
-    // Mark code as used
-    const { error: useError } = await supabase
-        .from("mentor_vouch_codes")
-        .update({ used_by: user.id, used_at: new Date().toISOString() })
-        .eq("id", vouchCode.id);
-    if (useError) return { success: false, error: useError.message };
-
-    // Grant mentor status
-    const { error: profileError } = await supabase
-        .from("profiles")
-        .update({ is_mentor: true })
-        .eq("id", user.id);
-
-    if (profileError) return { success: false, error: profileError.message };
-
-    // Create mentor_profile entry
-    const { data: existingMp } = await supabase
-        .from("mentor_profiles")
-        .select("id")
-        .eq("id", user.id)
-        .maybeSingle();
-
-    if (!existingMp) {
-        const { error: mpError } = await supabase.from("mentor_profiles").insert({
-            id: user.id,
-            path: "vouch",
-        });
-        if (mpError) return { success: false, error: mpError.message };
+    const result = data as { success: boolean; error?: string };
+    if (!result?.success) {
+        return { success: false, error: result?.error || "Could not redeem code" };
     }
 
     revalidatePath("/mentorship/dashboard");
     revalidatePath("/mentorship/apply");
     revalidatePath("/mentorship/find");
 
-    return { success: true };
-}
-
-/** DEBUG ONLY: Force current user to be a mentor */
-export async function debugForceMentorStatus(): Promise<{ success: boolean; error?: string }> {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return { success: false, error: "Not logged in" };
-
-    console.log("DEBUG FORCE MENTOR: Updating profile for", user.id);
-    const { error } = await supabase.from("profiles").update({ is_mentor: true }).eq("id", user.id);
-
-    if (error) return { success: false, error: error.message };
-
-    // Create mentor profile if missing
-    const { data: mp } = await supabase.from("mentor_profiles").select("id").eq("id", user.id).maybeSingle();
-    if (!mp) {
-        await supabase.from("mentor_profiles").insert({ id: user.id, path: "vouch" });
-    }
-
-    revalidatePath("/mentorship/dashboard");
     return { success: true };
 }
 
@@ -542,37 +495,20 @@ export async function applyVeteranPath(): Promise<{ success: boolean; error?: st
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return { success: false, error: "Not logged in" };
 
-    const { data: profile } = await supabase
-        .from("profiles")
-        .select("level, xp, is_mentor")
-        .eq("id", user.id)
-        .single();
+    // The level-10 requirement is enforced inside grant_mentor_via_veteran()
+    // against the stored profile, so it holds even if this action is called
+    // directly. is_mentor is an authorization column and is no longer
+    // client-writable — see migrations 001 and 003.
+    const { data, error } = await supabase.rpc("grant_mentor_via_veteran");
 
-    if (!profile) return { success: false, error: "Profile not found" };
-    if (profile.is_mentor) return { success: false, error: "You are already a mentor" };
-
-    // Prioritize DB level, fallback to XP calculation
-    const level = profile.level ?? calculateLevel(profile.xp || 0);
-
-    if (level < 10) {
-        return { success: false, error: `You need to be level 10 to apply. You are level ${level}.` };
+    if (error) {
+        console.error("applyVeteranPath RPC error:", error.message);
+        return { success: false, error: "Could not complete application" };
     }
 
-    const { error: profileUpdateError } = await supabase.from("profiles").update({ is_mentor: true }).eq("id", user.id);
-    if (profileUpdateError) return { success: false, error: profileUpdateError.message };
-
-    const { data: existingMp } = await supabase
-        .from("mentor_profiles")
-        .select("id")
-        .eq("id", user.id)
-        .single();
-
-    if (!existingMp) {
-        const { error: mpError } = await supabase.from("mentor_profiles").insert({
-            id: user.id,
-            path: "veteran",
-        });
-        if (mpError) return { success: false, error: mpError.message };
+    const result = data as { success: boolean; error?: string };
+    if (!result?.success) {
+        return { success: false, error: result?.error || "Could not complete application" };
     }
 
     revalidatePath("/mentorship/dashboard");
@@ -580,6 +516,48 @@ export async function applyVeteranPath(): Promise<{ success: boolean; error?: st
     revalidatePath("/mentorship/find");
 
     return { success: true };
+}
+
+/**
+ * Grades the mentor screening quiz server-side and grants mentor status on a
+ * pass. The answer key lives in grant_mentor_via_test(); it used to sit in the
+ * client bundle, where the page graded itself and then wrote is_mentor.
+ */
+export async function submitMentorTest(answers: number[]): Promise<{
+    success: boolean;
+    passed?: boolean;
+    score?: number;
+    error?: string;
+}> {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { success: false, error: "Not logged in" };
+
+    if (!Array.isArray(answers) || answers.some(a => !Number.isInteger(a))) {
+        return { success: false, error: "Invalid submission" };
+    }
+
+    const { data, error } = await supabase.rpc("grant_mentor_via_test", {
+        p_answers: answers,
+    });
+
+    if (error) {
+        console.error("submitMentorTest RPC error:", error.message);
+        return { success: false, error: "Could not submit test" };
+    }
+
+    const result = data as { success: boolean; passed?: boolean; score?: number; error?: string };
+
+    if (result?.error) return { success: false, error: result.error };
+
+    if (!result?.passed) {
+        return { success: true, passed: false, score: result?.score ?? 0 };
+    }
+
+    revalidatePath("/mentorship/dashboard");
+    revalidatePath("/mentorship/find");
+
+    return { success: true, passed: true, score: result.score };
 }
 
 export async function getMyMentorStatus(userId?: string): Promise<{
@@ -605,10 +583,6 @@ export async function getMyMentorStatus(userId?: string): Promise<{
         .maybeSingle();
 
     // ── SERVER-SIDE DIAGNOSTICS (visible in Next.js terminal) ─────────────
-    console.log("=== getMyMentorStatus DIAG ===");
-    console.log("Queried user ID:", resolvedUserId);
-    console.log("DB error:", error?.message ?? "none");
-    console.log("DB data (raw):", JSON.stringify(data, null, 2));
     // ──────────────────────────────────────────────────────────────────────
 
     const mp = data?.mentor_profiles as any;

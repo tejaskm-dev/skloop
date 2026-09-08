@@ -69,7 +69,7 @@ export default function DashboardPage() {
         if (!selectedTask || !user) return;
 
         try {
-            await completeTask(selectedTask.id, user.id, selectedTask.tasks.xp_reward);
+            await completeTask(selectedTask.id);
 
             // Optimistically update and trigger revalidation
             mutate(tasks.filter((t: any) => t.id !== selectedTask.id), false);

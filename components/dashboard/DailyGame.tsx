@@ -248,9 +248,9 @@ export default function DailyGame({ isOpen, onClose, inline = false, onComplete 
             // We use claimQuestProgress directly to bypass UI validations that might race with the upsert above
             const { claimQuestProgress } = await import('@/actions/quest-actions');
             const [dailyResult] = await Promise.all([
-                claimQuestProgress(user.id, 'codele',     'daily',   1, 1),   // daily: play once
-                claimQuestProgress(user.id, 'codele_3w',  'weekly',  1, 3),   // weekly: play 3x
-                claimQuestProgress(user.id, 'codele_15m', 'monthly', 1, 15),  // monthly: play 15x
+                claimQuestProgress('codele',     'daily'),   // daily: play once
+                claimQuestProgress('codele_3w',  'weekly'),  // weekly: play 3x
+                claimQuestProgress('codele_15m', 'monthly'), // monthly: play 15x
             ]);
             // Show XP/coins earned if the daily quest just completed
             if (dailyResult.isComplete && dailyResult.xpAwarded) {

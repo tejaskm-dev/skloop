@@ -716,7 +716,7 @@ function ChatPageContent() {
                 {selectedPeer ? (
                     <motion.div
                         key={selectedPeer.id}
-                        className="fixed inset-0 h-[100dvh] md:h-auto md:static md:inset-auto md:flex-1 md:min-w-0 md:flex md:flex-col bg-white z-50 md:z-auto shadow-[-4px_0_24px_-10px_rgba(0,0,0,0.05)] md:shadow-none"
+                        className="fixed inset-0 h-[var(--app-h)] md:h-auto md:static md:inset-auto md:flex-1 md:min-w-0 md:flex md:flex-col bg-white z-50 md:z-auto shadow-[-4px_0_24px_-10px_rgba(0,0,0,0.05)] md:shadow-none"
                         initial={{ opacity: 0, x: 20 }}
                         animate={{ opacity: 1, x: 0 }}
                         exit={{ opacity: 0 }}

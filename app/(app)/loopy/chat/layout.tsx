@@ -18,8 +18,13 @@ import { ChatSidebar } from "@/components/loopy/ChatSidebar";
  *    390px screen is a sixth of the width spent on one button. On mobile it is
  *    an off-canvas drawer instead: no permanent strip, opened from the header.
  *
- *  - 100dvh (not 100vh) so the layout tracks mobile browser chrome as it
- *    shows and hides, rather than sitting under it.
+ *  - The bottom edge lifts by --kb (published by KeyboardInsets) rather than
+ *    pinning to 0. A fixed element resolves `bottom: 0` against the LAYOUT
+ *    viewport, which iOS does not shrink for the keyboard — so the composer
+ *    would sit underneath it. --kb is 0 wherever the engine shrinks the layout
+ *    viewport itself, so this needs no per-platform branch. The transition is
+ *    what makes it glide up with the keyboard instead of jumping: iOS reports
+ *    the new viewport in a couple of steps, not per frame.
  */
 export default function LoopyChatLayout({ children }: { children: React.ReactNode }) {
     const [drawerOpen, setDrawerOpen] = useState(false);
@@ -38,7 +43,7 @@ export default function LoopyChatLayout({ children }: { children: React.ReactNod
             // md up that header is hidden, so the shell takes the full height.
             // Expressed in classes, not an inline style, because an inline
             // `top` would win over the md: breakpoint.
-            className="fixed inset-x-0 bottom-0 top-[calc(4rem+env(safe-area-inset-top,0px))] z-50 flex overflow-hidden bg-[#FAFAF8] font-sans md:top-0"
+            className="fixed inset-x-0 bottom-[var(--kb,0px)] top-[calc(4rem+env(safe-area-inset-top,0px))] z-50 flex overflow-hidden bg-[#FAFAF8] font-sans transition-[bottom] duration-200 ease-out md:top-0"
         >
             {/* Desktop: a real column. Mobile: an off-canvas drawer. */}
             <div className="hidden md:flex">

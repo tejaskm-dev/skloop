@@ -7,7 +7,7 @@ export default function AuthLayout({
 }) {
     return (
         // Full height, pure white background for that "Lab" feel
-        <div className="h-[100dvh] w-full flex bg-white text-zinc-900 overflow-hidden font-sans">
+        <div className="h-[var(--app-h)] w-full flex bg-white text-zinc-900 overflow-hidden font-sans">
             {/* Left Panel: The Simulation Viewport */}
             <div className="hidden lg:block w-1/2 relative h-full bg-zinc-50">
                 <AuthVisuals />

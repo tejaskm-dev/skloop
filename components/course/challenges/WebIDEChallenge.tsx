@@ -571,7 +571,7 @@ export default function WebIDEChallenge({ challengeData, onComplete }: WebIDECha
     };
 
     return (
-        <div className="flex flex-col h-screen bg-[#FDFCF8] relative overflow-hidden">
+        <div className="flex flex-col h-[var(--app-h)] bg-[#FDFCF8] relative overflow-hidden">
             {/* Header */}
             <div className="bg-white border-b border-zinc-100 h-14 flex items-center justify-between px-6 z-30 shadow-sm">
                 <div className="flex items-center gap-3">

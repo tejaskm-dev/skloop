@@ -59,7 +59,7 @@ export default function LoopyPage() {
         <motion.div
             initial={{ opacity: 0 }}
             animate={isGlobalLoading ? { opacity: 0 } : { opacity: 1 }}
-            className="flex flex-col font-sans relative overflow-hidden h-[100dvh]"
+            className="flex flex-col font-sans relative overflow-hidden h-[var(--app-h)]"
         >
             {/* The Animated "Fluid Aurora" Background Effect */}
             <motion.div 

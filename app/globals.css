@@ -390,3 +390,19 @@ html {
     opacity: 0;
   }
 }
+/*
+ * Hides a scrollbar while keeping the element scrollable.
+ *
+ * This class is used in 24 places across 15 files — the sidebar, the chat
+ * transcript, the tool row, category strips — but was never actually defined,
+ * so every one of them has been showing a scrollbar. Most visible on the
+ * horizontal rows, where a native bar sits across the bottom of the track.
+ */
+.no-scrollbar {
+  -ms-overflow-style: none;  /* IE / old Edge */
+  scrollbar-width: none;     /* Firefox */
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;             /* WebKit */
+}

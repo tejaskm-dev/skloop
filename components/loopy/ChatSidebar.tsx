@@ -39,7 +39,14 @@ const fetchConversations = async () => {
     return listMyConversations();
 };
 
-export function ChatSidebar() {
+export function ChatSidebar({
+    forceExpanded = false,
+    onNavigate,
+}: {
+    forceExpanded?: boolean;
+    /** Called when the user navigates, so a drawer can close itself. */
+    onNavigate?: () => void;
+} = {}) {
     const pathname = usePathname();
     const router = useRouter();
     const { user } = useUser();
@@ -57,8 +64,10 @@ export function ChatSidebar() {
     const conversations = data ?? [];
 
     useEffect(() => {
-        if (window.innerWidth < 1024) setCollapsed(true);
-    }, []);
+        // Only auto-collapse on desktop widths. On mobile this renders inside a
+        // drawer, which is already an explicit open/closed state.
+        if (!forceExpanded && window.innerWidth < 1024) setCollapsed(true);
+    }, [forceExpanded]);
 
     // The chat page fires this after a turn so a new conversation appears.
     useEffect(() => {
@@ -69,7 +78,8 @@ export function ChatSidebar() {
 
     const newChat = useCallback(() => {
         router.push("/loopy/chat/new");
-    }, [router]);
+        onNavigate?.();
+    }, [router, onNavigate]);
 
     const remove = async (id: string) => {
         setMenuFor(null);
@@ -88,7 +98,7 @@ export function ChatSidebar() {
           )
         : conversations;
 
-    if (collapsed) {
+    if (collapsed && !forceExpanded) {
         return (
             <aside className="flex h-full w-[68px] shrink-0 flex-col items-center gap-3 border-r border-zinc-200 bg-white py-4">
                 <button
@@ -110,7 +120,12 @@ export function ChatSidebar() {
     }
 
     return (
-        <aside className="flex h-full w-[272px] shrink-0 flex-col border-r border-zinc-200 bg-white">
+        <aside
+            className={`flex h-full w-[272px] shrink-0 flex-col border-r border-zinc-200 bg-white ${
+                forceExpanded ? "w-[min(84vw,300px)] shadow-2xl" : ""
+            }`}
+            style={forceExpanded ? { paddingTop: "env(safe-area-inset-top, 0px)" } : undefined}
+        >
             {/* Brand */}
             <div className="flex items-center gap-2.5 px-5 pb-4 pt-5">
                 <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#050505]">
@@ -178,6 +193,7 @@ export function ChatSidebar() {
                                 <li key={c.id} className="group relative">
                                     <Link
                                         href={`/loopy/chat/${c.id}`}
+                                        onClick={onNavigate}
                                         className={`block rounded-xl px-3 py-2.5 transition-colors ${
                                             active ? "bg-[#F4FBE4]" : "hover:bg-zinc-50"
                                         }`}

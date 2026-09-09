@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { usePathname } from "next/navigation";
 import { Menu } from "lucide-react";
 import { ChatSidebar } from "@/components/loopy/ChatSidebar";
 
@@ -24,10 +23,6 @@ import { ChatSidebar } from "@/components/loopy/ChatSidebar";
  */
 export default function LoopyChatLayout({ children }: { children: React.ReactNode }) {
     const [drawerOpen, setDrawerOpen] = useState(false);
-    const pathname = usePathname();
-
-    // Navigating to a conversation should close the drawer behind you.
-    useEffect(() => { setDrawerOpen(false); }, [pathname]);
 
     // A drawer that leaves the page scrolling behind it feels broken.
     useEffect(() => {
@@ -58,7 +53,7 @@ export default function LoopyChatLayout({ children }: { children: React.ReactNod
                         className="fixed inset-0 z-40 bg-black/40 backdrop-blur-[2px] md:hidden"
                     />
                     <div className="fixed inset-y-0 left-0 z-50 animate-in slide-in-from-left duration-200 md:hidden">
-                        <ChatSidebar forceExpanded />
+                        <ChatSidebar forceExpanded onNavigate={() => setDrawerOpen(false)} />
                     </div>
                 </>
             )}

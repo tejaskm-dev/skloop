@@ -39,7 +39,14 @@ const fetchConversations = async () => {
     return listMyConversations();
 };
 
-export function ChatSidebar({ forceExpanded = false }: { forceExpanded?: boolean } = {}) {
+export function ChatSidebar({
+    forceExpanded = false,
+    onNavigate,
+}: {
+    forceExpanded?: boolean;
+    /** Called when the user navigates, so a drawer can close itself. */
+    onNavigate?: () => void;
+} = {}) {
     const pathname = usePathname();
     const router = useRouter();
     const { user } = useUser();
@@ -71,7 +78,8 @@ export function ChatSidebar({ forceExpanded = false }: { forceExpanded?: boolean
 
     const newChat = useCallback(() => {
         router.push("/loopy/chat/new");
-    }, [router]);
+        onNavigate?.();
+    }, [router, onNavigate]);
 
     const remove = async (id: string) => {
         setMenuFor(null);
@@ -185,6 +193,7 @@ export function ChatSidebar({ forceExpanded = false }: { forceExpanded?: boolean
                                 <li key={c.id} className="group relative">
                                     <Link
                                         href={`/loopy/chat/${c.id}`}
+                                        onClick={onNavigate}
                                         className={`block rounded-xl px-3 py-2.5 transition-colors ${
                                             active ? "bg-[#F4FBE4]" : "hover:bg-zinc-50"
                                         }`}

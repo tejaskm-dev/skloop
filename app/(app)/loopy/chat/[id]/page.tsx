@@ -366,7 +366,18 @@ export default function LoopyChatPage({ params }: { params: Promise<{ id: string
 
                 <div className="mx-auto max-w-3xl space-y-7">
                     <AnimatePresence initial={false}>
-                        {messages.map((msg) => (
+                        {messages.map((msg) => {
+                            const isEmptyAssistant =
+                                msg.role === "assistant" &&
+                                !msg.content &&
+                                (msg.toolSteps ?? []).length === 0 &&
+                                (msg.artifactSlugs ?? []).length === 0;
+
+                            // The typing indicator below stands in for this row
+                            // until the first token or tool event lands.
+                            if (isEmptyAssistant) return null;
+
+                            return (
                             <motion.div
                                 key={msg.id}
                                 initial={{ opacity: 0, y: 15 }}
@@ -389,7 +400,11 @@ export default function LoopyChatPage({ params }: { params: Promise<{ id: string
                                     )}
                                 </div>
 
-                                {/* Content Bubble */}
+                                {/* Content bubble.
+                                    An assistant turn starts empty and fills in as
+                                    the stream arrives; rendering it before there
+                                    is anything in it produced a blank white bar
+                                    above the typing indicator. */}
                                 <div className={`flex flex-col min-w-0 max-w-[85%] ${msg.role === "user" ? "items-end" : "items-start w-full"}`}>
                                     <div
                                         className={
@@ -427,7 +442,8 @@ export default function LoopyChatPage({ params }: { params: Promise<{ id: string
                                     </div>
                                 </div>
                             </motion.div>
-                        ))}
+                            );
+                        })}
                     </AnimatePresence>
 
                     {isLoading && messages[messages.length - 1]?.content === "" && (messages[messages.length - 1]?.toolSteps ?? []).length === 0 && (

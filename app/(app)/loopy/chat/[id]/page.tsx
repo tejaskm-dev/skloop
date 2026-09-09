@@ -313,7 +313,7 @@ export default function LoopyChatPage({ params }: { params: Promise<{ id: string
             <div className={`flex flex-col h-full min-h-0 min-w-0 transition-[width] duration-300 ${showPanel ? "w-full lg:w-1/2" : "w-full"}`}>
             
             {/* Header */}
-            <header className="sticky top-0 z-20 flex h-20 shrink-0 items-center gap-4 border-b border-zinc-200 bg-[#FAFAF8]/90 px-6 backdrop-blur-xl">
+            <header className="sticky top-0 z-20 hidden h-20 shrink-0 items-center gap-4 border-b border-zinc-200 bg-[#FAFAF8]/90 px-6 backdrop-blur-xl md:flex">
                 <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full ring-2 ring-[#D4F268]">
                     <div className="scale-[1.6] translate-y-[3px]">
                         <LoopyMascot size={44} mood="happy" />
@@ -337,7 +337,7 @@ export default function LoopyChatPage({ params }: { params: Promise<{ id: string
             </header>
 
             {/* Messages Area */}
-            <div ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-hidden bg-[#FAFAF8] px-4 py-8 no-scrollbar md:px-6">
+            <div ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-hidden bg-[#FAFAF8] px-3 py-5 no-scrollbar md:px-6 md:py-8">
                 
                 {isLoadingHistory && (
                     <div className="mx-auto max-w-3xl space-y-7" aria-busy="true">
@@ -388,13 +388,13 @@ export default function LoopyChatPage({ params }: { params: Promise<{ id: string
                                 {/* Avatar */}
                                 <div className="mt-0.5 shrink-0">
                                     {msg.role === "assistant" ? (
-                                        <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-white ring-2 ring-zinc-200">
+                                        <div className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-white ring-2 ring-zinc-200 md:h-10 md:w-10">
                                             <div className="scale-[1.5] translate-y-[3px]">
                                                 <LoopyMascot size={40} mood={(msg.mood as LoopyMood) ?? "happy"} />
                                             </div>
                                         </div>
                                     ) : (
-                                        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#D4F268] text-[10px] font-black tracking-tight text-[#050505]">
+                                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#D4F268] text-[9px] font-black tracking-tight text-[#050505] md:h-10 md:w-10 md:text-[10px]">
                                             YOU
                                         </div>
                                     )}
@@ -405,7 +405,7 @@ export default function LoopyChatPage({ params }: { params: Promise<{ id: string
                                     the stream arrives; rendering it before there
                                     is anything in it produced a blank white bar
                                     above the typing indicator. */}
-                                <div className={`flex flex-col min-w-0 max-w-[85%] ${msg.role === "user" ? "items-end" : "items-start w-full"}`}>
+                                <div className={`flex min-w-0 max-w-[88%] flex-col md:max-w-[85%] ${msg.role === "user" ? "items-end" : "w-full items-start"}`}>
                                     <div
                                         className={
                                             msg.role === "user"
@@ -449,7 +449,7 @@ export default function LoopyChatPage({ params }: { params: Promise<{ id: string
                     {isLoading && messages[messages.length - 1]?.content === "" && (messages[messages.length - 1]?.toolSteps ?? []).length === 0 && (
                         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex gap-4 md:gap-6">
                             <div className="mt-0.5 shrink-0">
-                                <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-white ring-2 ring-zinc-200">
+                                <div className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-white ring-2 ring-zinc-200 md:h-10 md:w-10">
                                     <div className="scale-[1.5] translate-y-[3px] opacity-60">
                                         <LoopyMascot size={40} mood="thinking" />
                                     </div>
@@ -466,7 +466,10 @@ export default function LoopyChatPage({ params }: { params: Promise<{ id: string
             </div>
 
             {/* Input */}
-            <div className="shrink-0 bg-gradient-to-t from-[#FAFAF8] via-[#FAFAF8] to-transparent px-4 pb-5 pt-4 md:px-8">
+            <div
+                className="shrink-0 bg-gradient-to-t from-[#FAFAF8] via-[#FAFAF8] to-transparent px-3 pb-3 pt-3 md:px-8 md:pb-5 md:pt-4"
+                style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom, 0px))" }}
+            >
                 <div className="relative mx-auto max-w-3xl">
                     <form
                         onSubmit={(e) => { e.preventDefault(); handleSend(); }}
@@ -491,6 +494,10 @@ export default function LoopyChatPage({ params }: { params: Promise<{ id: string
                         />
 
                         <div className="flex items-center gap-2 px-3 pb-3">
+                            {/* Chips scroll; the send button must not go with
+                                them. At 375px the four chips are ~34px wider
+                                than the row, so this genuinely overflows. */}
+                            <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto no-scrollbar">
                             {/* Real tool selection. These constrain which tools
                                 the agent is offered for this message — they are
                                 sent to the server, not pasted into the prompt.
@@ -508,7 +515,7 @@ export default function LoopyChatPage({ params }: { params: Promise<{ id: string
                                                 prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]
                                             )
                                         }
-                                        className={`flex h-9 items-center gap-1.5 rounded-full border px-3 text-xs font-bold transition-colors ${
+                                        className={`flex h-9 shrink-0 items-center gap-1.5 rounded-full border px-3 text-xs font-bold transition-colors ${
                                             on
                                                 ? "border-[#b5db3b] bg-[#EAF7C9] text-[#3f5406]"
                                                 : "border-zinc-200 text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
@@ -529,11 +536,13 @@ export default function LoopyChatPage({ params }: { params: Promise<{ id: string
                                 </button>
                             )}
 
+                            </div>
+
                             <button
                                 type="submit"
                                 disabled={!input.trim() || isLoading}
                                 aria-label="Send message"
-                                className={`ml-auto flex h-10 w-10 items-center justify-center rounded-full transition-all active:scale-95 ${
+                                className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-all active:scale-95 ${
                                     input.trim() && !isLoading
                                         ? "bg-[#050505] text-white"
                                         : "cursor-not-allowed bg-zinc-100 text-zinc-300"
@@ -544,7 +553,7 @@ export default function LoopyChatPage({ params }: { params: Promise<{ id: string
                         </div>
                     </form>
 
-                    <p className="mt-2 text-right text-[11px] font-bold text-zinc-400">
+                    <p className="mt-2 hidden text-right text-[11px] font-bold text-zinc-400 md:block">
                         Shift + Enter for a new line
                     </p>
                 </div>
@@ -555,7 +564,7 @@ export default function LoopyChatPage({ params }: { params: Promise<{ id: string
                 large ones — there isn't room for a genuine split below lg. */}
             <AnimatePresence>
                 {showPanel && (
-                    <div className="fixed inset-0 z-40 lg:static lg:z-auto lg:block lg:w-1/2 lg:shrink-0">
+                    <div className="fixed inset-0 z-[60] lg:static lg:z-auto lg:block lg:w-1/2 lg:shrink-0">
                         <ArtifactPanel
                             artifacts={artifacts}
                             activeSlug={activeArtifact}

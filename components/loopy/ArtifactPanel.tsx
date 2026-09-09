@@ -84,7 +84,11 @@ export function ArtifactPanel({
             animate={{ x: 0, opacity: 1 }}
             exit={{ x: 40, opacity: 0 }}
             transition={{ type: "spring", stiffness: 260, damping: 28 }}
-            className="flex h-full w-full flex-col border-l-2 border-slate-200 bg-[#FAFAF8]"
+            className="flex h-full w-full flex-col border-slate-200 bg-[#FAFAF8] lg:border-l-2"
+            style={{
+                paddingTop: "env(safe-area-inset-top, 0px)",
+                paddingBottom: "env(safe-area-inset-bottom, 0px)",
+            }}
         >
             {/* Header */}
             <header className="flex h-16 shrink-0 items-center justify-between border-b-2 border-slate-200 px-4">
@@ -115,9 +119,9 @@ export function ArtifactPanel({
                     <button
                         onClick={onClose}
                         aria-label="Close panel"
-                        className="rounded-lg p-2 text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900"
+                        className="rounded-xl p-2.5 text-zinc-600 transition-colors hover:bg-zinc-100 hover:text-zinc-900 active:bg-zinc-200"
                     >
-                        <X size={16} />
+                        <X size={18} />
                     </button>
                 </div>
             </header>

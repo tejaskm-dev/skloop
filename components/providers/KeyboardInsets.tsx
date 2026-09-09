@@ -44,7 +44,17 @@ const NON_TEXT_TYPES = new Set([
     "hidden", "submit", "button", "image", "reset",
 ]);
 
-/** Coverage past which we call it a keyboard rather than a toolbar. */
+/**
+ * Coverage past which we call it a keyboard rather than browser chrome.
+ *
+ * A pixel threshold alone is not enough on iOS Safari: `window.innerHeight` is
+ * the layout viewport (toolbars retracted) while `visualViewport.height` is
+ * what you can currently see, so an expanded URL bar plus bottom toolbar
+ * already accounts for ~100px of "coverage" with no keyboard anywhere. That
+ * sits close enough to any threshold that scrolling — which collapses and
+ * expands those toolbars — would flip the state back and forth and jitter the
+ * layout. `isKeyboardOpen` therefore also requires a focused text field.
+ */
 const OPEN_THRESHOLD_PX = 120;
 /** Breathing room between the field and the edge of the visible band. */
 const PAD_PX = 14;
@@ -223,7 +233,9 @@ export function KeyboardInsets() {
             const covered = vv && !pinched
                 ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop)
                 : 0;
-            const open = covered > OPEN_THRESHOLD_PX;
+            // Browser chrome covers viewport too; only a focused field means keyboard.
+            const open =
+                covered > OPEN_THRESHOLD_PX && isTextEntry(document.activeElement);
 
             root.style.setProperty("--kb", `${Math.round(covered)}px`);
 

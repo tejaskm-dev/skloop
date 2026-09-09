@@ -156,7 +156,7 @@ export default function FreeCodeIDEPage() {
   if (!project) return null;
 
   return (
-    <div className="h-screen w-full bg-[#FDFCF8] flex flex-col text-black overflow-hidden border-l-2 border-zinc-200">
+    <div className="h-[var(--app-h)] w-full bg-[#FDFCF8] flex flex-col text-black overflow-hidden border-l-2 border-zinc-200">
       {/* Top Header */}
       <header className="h-14 border-b-2 border-zinc-200 bg-white/80 backdrop-blur flex items-center justify-between px-4 shrink-0">
         <div className="flex items-center gap-4">

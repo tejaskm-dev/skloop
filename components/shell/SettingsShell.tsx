@@ -82,7 +82,7 @@ export function SettingsShell({ children }: { children: React.ReactNode }) {
     };
 
     return (
-        <div className="flex h-[100dvh] bg-zinc-50">
+        <div className="flex h-[var(--app-h)] bg-zinc-50">
             {/* Left Settings Sidebar */}
             <aside className="w-64 shrink-0 bg-white border-r border-zinc-100 flex flex-col h-full hidden md:flex">
                 {/* Header */}

@@ -1,10 +1,10 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import clsx from "clsx";
 
 import { ToastProvider } from "@/components/ui/ToastProvider";
-import { MasterScrollProvider } from "@/components/providers/MasterScrollProvider";
+import { KeyboardInsets } from "@/components/providers/KeyboardInsets";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
@@ -55,6 +55,25 @@ export const metadata: Metadata = {
       "max-snippet": -1,
     }
   }
+};
+
+/**
+ * Next's default viewport tag omits `interactive-widget`, which leaves Chrome
+ * on its default of `resizes-visual`: the software keyboard shrinks only the
+ * visual viewport, so `100dvh` still measures a viewport the keyboard is
+ * covering half of. `resizes-content` makes the layout viewport shrink too, so
+ * full-height screens size themselves to the space above the keyboard with no
+ * JS at all. Safari does not implement it yet; KeyboardInsets covers iOS.
+ *
+ * There is deliberately no `maximumScale` or `userScalable: false` here. Those
+ * are the usual shortcut for stopping focus-zoom, but they disable pinch-zoom
+ * for everyone permanently (WCAG 1.4.4). The font-size floor in globals.css
+ * removes the browser's reason to zoom instead.
+ */
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  interactiveWidget: "resizes-content",
 };
 
 const jsonLd = {
@@ -115,6 +134,7 @@ export default function RootLayout({
           "pb-[env(safe-area-inset-bottom)]"
         )}
       >
+        <KeyboardInsets />
         <ToastProvider>
           <Suspense fallback={null}>
             <LoadingProvider>

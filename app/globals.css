@@ -406,3 +406,144 @@ html {
 .no-scrollbar::-webkit-scrollbar {
   display: none;             /* WebKit */
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MOBILE TEXT ENTRY
+   ═══════════════════════════════════════════════════════════════════════════
+
+   Focusing a text field on a phone was zooming the whole page in. That is not
+   a quirk of one screen — it is the documented behaviour of both mobile
+   engines: WebKit and Chrome zoom to a focused editable whose computed
+   font-size is below 16px, so the text is legible at the default scale. An
+   audit of this codebase found ~100 text-entry controls and essentially all of
+   them sat under that threshold (48 at `text-sm`, 16 at `text-xs`, the Loopy
+   composer at 15px — one pixel short). So every input in the app zoomed.
+
+   The usual "fix" is `maximum-scale=1, user-scalable=no` on the viewport meta.
+   We deliberately do not do that: it takes pinch-zoom away from everyone
+   permanently to paper over a focus behaviour, which fails WCAG 1.4.4, and
+   modern WebKit ignores it anyway. Raising the font to the threshold removes
+   the browser's reason to zoom in the first place, and 16px is a better
+   reading size on a phone regardless.
+
+   ── Why these rules are unlayered ──
+   `@import "tailwindcss"` puts every utility in `@layer utilities`. In the
+   cascade, layer order is compared BEFORE specificity, and unlayered author
+   styles outrank every layer. So these plain element selectors beat
+   `.text-xs` without needing `!important`.
+
+   That same power is why the exemptions exist: a blanket floor would also drag
+   the controls that are already 16px or larger DOWN to 16px. `revert-layer`
+   hands those back to the normal cascade, restoring not just the base utility
+   but everything layered on top of it.
+
+   ── Why `~=` and not `*=` ──
+   `[class*="text-lg"]` looks tidier but is wrong: it also matches
+   `md:text-lg`, so a field written `text-sm md:text-lg` would be exempted at
+   EVERY width and keep zooming on the phone it was 14px on. `~=` matches a
+   whole class token, so responsive variants are handled where they belong —
+   in a matching media query below. Only `sm:` and `md:` are covered because
+   they are the only prefixes this codebase uses on a text control; add a block
+   if that changes.
+   ───────────────────────────────────────────────────────────────────────── */
+
+@media (pointer: coarse) {
+
+  input,
+  textarea,
+  select,
+  [contenteditable="true"],
+  [contenteditable=""] {
+    font-size: 16px;
+  }
+
+  /* Controls with no text to zoom into. */
+  input[type="checkbox"],
+  input[type="radio"],
+  input[type="range"],
+  input[type="file"],
+  input[type="color"],
+  input[type="submit"],
+  input[type="button"],
+  input[type="reset"],
+  input[type="image"],
+
+  /* Already at or above the threshold — leave them exactly as designed. */
+  [class~="text-base"],
+  [class~="text-lg"],
+  [class~="text-xl"],
+  [class~="text-2xl"],
+  [class~="text-3xl"],
+  [class~="text-4xl"],
+  [class~="text-5xl"],
+
+  /* Explicit opt-out, and the flowchart builder's nodes: those are 110px-wide
+     fields inside a transformed canvas, so a 16px floor would burst the node
+     geometry rather than improve it. */
+  [data-fs],
+  [data-fs] input,
+  [data-fs] textarea,
+  [data-fs] select,
+  .react-flow input,
+  .react-flow textarea,
+  .react-flow select {
+    font-size: revert-layer;
+  }
+}
+
+/* Responsive variants, exempted only at the width where they actually apply.
+   Tailwind escapes the colon in its own selectors; an attribute selector reads
+   the raw class value, so no escaping here. */
+@media (pointer: coarse) and (width >= 40rem) {
+  [class~="sm:text-base"],
+  [class~="sm:text-lg"],
+  [class~="sm:text-xl"],
+  [class~="sm:text-2xl"],
+  [class~="sm:text-3xl"],
+  [class~="sm:text-4xl"],
+  [class~="sm:text-5xl"] {
+    font-size: revert-layer;
+  }
+}
+
+@media (pointer: coarse) and (width >= 48rem) {
+  [class~="md:text-base"],
+  [class~="md:text-lg"],
+  [class~="md:text-xl"],
+  [class~="md:text-2xl"],
+  [class~="md:text-3xl"],
+  [class~="md:text-4xl"],
+  [class~="md:text-5xl"] {
+    font-size: revert-layer;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   VIEWPORT + KEYBOARD GEOMETRY
+   ═══════════════════════════════════════════════════════════════════════════
+
+   Fallbacks for the two custom properties KeyboardInsets maintains. They are
+   declared here so every consumer renders correctly on the server, before any
+   JS runs, and on browsers with no visualViewport API.
+
+     --app-h  usable viewport height. Defaults to the dynamic viewport; while
+              a software keyboard is open it is pinned to the visual viewport
+              so full-height shells stop extending behind the keyboard.
+     --kb     how much of the LAYOUT viewport the keyboard covers. Always 0 on
+              engines that shrink the layout viewport themselves; non-zero on
+              iOS, where a `position: fixed` element would otherwise sit under
+              the keyboard.
+   ───────────────────────────────────────────────────────────────────────── */
+
+:root {
+  --app-h: 100dvh;
+  --kb: 0px;
+}
+
+/* Cheap signal for anything that wants to hide while typing — a mobile tab bar
+   competing with a keyboard, for instance. */
+html[data-kb="open"] {
+  /* Overscroll while the keyboard is up produces the classic iOS white gap
+     between the page and the keyboard. */
+  overscroll-behavior-y: none;
+}

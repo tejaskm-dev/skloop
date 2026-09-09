@@ -100,7 +100,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
 
     return (
-        <div className="flex h-[100dvh] bg-background p-0 md:p-4 gap-4 overflow-hidden items-stretch">
+        <div className="flex h-[var(--app-h)] bg-background p-0 md:p-4 gap-4 overflow-hidden items-stretch">
             <NotificationListener />
             <Sidebar mobileOpen={mobileOpen} setMobileOpen={setMobileOpen} />
             <div
